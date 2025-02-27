@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { db } from '../firebase';
-import { doc, updateDoc, getDoc } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, getDoc } from 'firebase/firestore';
 
 const CustomerDashboard = () => {
   const { branchId, gameId } = useParams();
@@ -11,21 +11,34 @@ const CustomerDashboard = () => {
   const [rentalId, setRentalId] = useState(null);
 
   useEffect(() => {
-    const startRental = async () => {
-      const rental = await getDoc(doc(db, 'rentals', `${gameId}-${branchId}`)); // Simplified ID
+    const checkOrStartRental = async () => {
+      const rentalRef = doc(db, 'rentals', `${gameId}-${branchId}`);
+      const rental = await getDoc(rentalRef);
       if (rental.exists() && rental.data().status === 'active') {
         setRentalId(rental.id);
         setTime(rental.data().totalTime || 0);
+      } else {
+        // Start rental if none exists
+        await setDoc(rentalRef, {
+          gameId,
+          branchId,
+          employeeId: null, // No employee for customer scan
+          customerId: 'cust1', // Dynamic later
+          startTime: new Date(),
+          status: 'active',
+          totalTime: 0,
+        });
+        setRentalId(rentalRef.id);
       }
     };
-    startRental();
+    checkOrStartRental();
 
     let interval;
     if (!isPaused) {
       interval = setInterval(() => setTime(t => t + 1), 60000); // 1 min
     }
     return () => clearInterval(interval);
-  }, [isPaused]);
+  }, [isPaused, branchId, gameId]);
 
   useEffect(() => {
     if (isPaused) {
@@ -36,18 +49,22 @@ const CustomerDashboard = () => {
 
   const togglePause = async () => {
     setIsPaused(!isPaused);
-    await updateDoc(doc(db, 'rentals', rentalId), { totalTime: time });
+    if (rentalId) {
+      await updateDoc(doc(db, 'rentals', rentalId), { totalTime: time });
+    }
   };
 
   const endSession = async () => {
     const finalCost = time * 3;
     setCost(finalCost);
-    await updateDoc(doc(db, 'rentals', rentalId), { totalTime: time, status: 'completed', cost: finalCost });
+    if (rentalId) {
+      await updateDoc(doc(db, 'rentals', rentalId), { totalTime: time, status: 'completed', cost: finalCost });
+    }
   };
 
   return (
     <div>
-      <h1>Game Rental</h1>
+      <h1>Game Rental - {branchId}</h1>
       <p>Time Played: {time} minutes</p>
       {cost > 0 ? (
         <p>Total Cost: {cost} bob</p>
