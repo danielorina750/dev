@@ -69,10 +69,6 @@ const Button = styled(motion.button)`
   &:hover {
     background: ${props => props.pause ? '#7e22ce' : '#ea580c'};
   }
-  &:disabled {
-    background: #ccc;
-    cursor: not-allowed;
-  }
 `;
 
 const ErrorText = styled.p`
@@ -88,16 +84,17 @@ const CustomerDashboard = () => {
   const [rentalId, setRentalId] = useState(null);
   const [gameName, setGameName] = useState('');
   const [isActive, setIsActive] = useState(false);
-  const [rentalHistory, setRentalHistory] = useState(null); // New state for history
+  const [rentalHistory, setRentalHistory] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const checkRentalStatus = async () => {
+    const checkAndStartRental = async () => {
       console.log('CustomerDashboard: Checking rental for:', gameId, branchId);
       const rentalRef = doc(db, 'rentals', `${gameId}-${branchId}`);
       const gameRef = doc(db, 'games', gameId);
 
       try {
+        // Fetch game name
         const gameDoc = await getDoc(gameRef);
         if (gameDoc.exists()) {
           setGameName(gameDoc.data().name);
@@ -107,32 +104,47 @@ const CustomerDashboard = () => {
           return;
         }
 
+        // Check rental status
         const rental = await getDoc(rentalRef);
         if (rental.exists()) {
           const rentalData = rental.data();
           console.log('Rental found:', rentalData);
           setRentalId(rental.id);
+
           if (rentalData.status === 'active') {
             setTime(rentalData.totalTime || 0);
             setIsActive(true);
-            setRentalHistory(null); // Clear history if active
+            setRentalHistory(null);
           } else if (rentalData.status === 'completed') {
             setCost(rentalData.cost || 0);
             setTime(rentalData.totalTime || 0);
             setIsActive(false);
-            setRentalHistory(rentalData); // Show history if completed
+            setRentalHistory(rentalData);
           }
         } else {
-          console.log('No rental found for this game.');
-          setIsActive(false);
-          setError('No rental record for this game.');
+          // No rental exists—start a new one
+          console.log('No rental exists, creating new rental');
+          await setDoc(rentalRef, {
+            gameId,
+            branchId,
+            employeeId: null, // Customer-initiated, no employee
+            customerId: 'cust1',
+            startTime: new Date(),
+            status: 'active',
+            totalTime: 0,
+          });
+          setRentalId(`${gameId}-${branchId}`);
+          setTime(0);
+          setIsActive(true);
+          setCost(0);
+          setRentalHistory(null);
         }
       } catch (error) {
         console.error('Firestore error:', error.message);
         setError('Failed to access rental or game data: ' + error.message);
       }
     };
-    checkRentalStatus();
+    checkAndStartRental();
 
     let interval;
     if (!isPaused && isActive && !error) {
@@ -142,7 +154,7 @@ const CustomerDashboard = () => {
           console.log('Timer incremented to:', t + 1);
           return t + 1;
         });
-      }, 60000);
+      }, 60000); // 1 minute
     }
     return () => {
       if (interval) clearInterval(interval);
@@ -162,7 +174,7 @@ const CustomerDashboard = () => {
   const togglePause = async () => {
     console.log('Toggle Pause clicked, current isPaused:', isPaused);
     if (!rentalId || !isActive) {
-      console.log('No active rentalId, cannot pause');
+      console.log('No active rental, cannot pause');
       return;
     }
     try {
@@ -178,7 +190,7 @@ const CustomerDashboard = () => {
   const endSession = async () => {
     console.log('End Session clicked');
     if (!rentalId || !isActive) {
-      console.log('No active rentalId, cannot end session');
+      console.log('No active rental, cannot end session');
       return;
     }
     try {
@@ -212,29 +224,23 @@ const CustomerDashboard = () => {
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
               <TimeText>Time Played: {time} minutes</TimeText>
             </motion.div>
-            {cost > 0 ? (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6 }}>
-                <CostText>Total Cost: {cost} bob</CostText>
-              </motion.div>
-            ) : (
-              <div className="flex justify-center gap-4">
-                <Button
-                  pause
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={togglePause}
-                >
-                  {isPaused ? 'Resume' : 'Pause'}
-                </Button>
-                <Button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={endSession}
-                >
-                  End Session
-                </Button>
-              </div>
-            )}
+            <div className="flex justify-center gap-4">
+              <Button
+                pause
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={togglePause}
+              >
+                {isPaused ? 'Resume' : 'Pause'}
+              </Button>
+              <Button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={endSession}
+              >
+                End Session
+              </Button>
+            </div>
           </>
         ) : rentalHistory ? (
           <>
@@ -244,7 +250,7 @@ const CustomerDashboard = () => {
             <p className="text-gray-600 mt-2">Session completed. Scan again to start a new rental.</p>
           </>
         ) : (
-          <ErrorText>No rental history for {gameName || 'this game'}.</ErrorText>
+          <ErrorText>Loading rental status...</ErrorText>
         )}
       </Card>
     </Container>

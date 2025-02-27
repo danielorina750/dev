@@ -13,7 +13,7 @@ const Container = styled.div`
   font-family: 'Arial', sans-serif;
 `;
 
-const Title = styled.h1`
+const DashboardTitle = styled.h1`
   color: white;
   font-size: 2.5rem;
   font-weight: bold;
@@ -55,9 +55,26 @@ const ListItem = styled(motion.li)`
   background: #f3f4f6;
   border-radius: 8px;
   margin-bottom: 0.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   transition: background 0.3s;
   &:hover {
     background: #e5e7eb;
+  }
+`;
+
+const EndButton = styled(motion.button)`
+  padding: 0.5rem 1rem;
+  background: #f97316;
+  color: white;
+  font-weight: bold;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.3s;
+  &:hover {
+    background: #ea580c;
   }
 `;
 
@@ -114,6 +131,7 @@ const EmployeeDashboard = () => {
 
       setActiveRentals(rentalsWithGameNames.filter(r => r.status === 'active'));
       setRentalHistory(rentalsWithGameNames.filter(r => r.status === 'completed'));
+      console.log('Active rentals:', rentalsWithGameNames.filter(r => r.status === 'active'));
     }, (error) => {
       console.error('Firestore listener error:', error.message);
     });
@@ -137,6 +155,7 @@ const EmployeeDashboard = () => {
                 status: 'completed',
                 cost: active.totalTime * 3,
               });
+              console.log('Employee ended rental:', active.id);
             } else {
               await addDoc(collection(db, 'rentals'), {
                 gameId,
@@ -147,6 +166,7 @@ const EmployeeDashboard = () => {
                 status: 'active',
                 totalTime: 0,
               });
+              console.log('Employee started new rental for game:', gameId);
               navigate(`/game/${branchId}/${gameId}`);
             }
           }
@@ -162,6 +182,22 @@ const EmployeeDashboard = () => {
     };
   }, [branchId, navigate]);
 
+  const endRentalSession = async (rentalId) => {
+    try {
+      const rentalRef = doc(db, 'rentals', rentalId);
+      const rentalDoc = await getDoc(rentalRef);
+      if (rentalDoc.exists() && rentalDoc.data().status === 'active') {
+        await updateDoc(rentalRef, {
+          status: 'completed',
+          cost: rentalDoc.data().totalTime * 3,
+        });
+        console.log('Employee ended rental via button:', rentalId);
+      }
+    } catch (error) {
+      console.error('Error ending rental:', error.message);
+    }
+  };
+
   return (
     <Container>
       <motion.div
@@ -169,7 +205,7 @@ const EmployeeDashboard = () => {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
       >
-        <Title>Employee Dashboard - {branchId}</Title>
+        <DashboardTitle>Employee Dashboard - {branchId}</DashboardTitle>
       </motion.div>
 
       <Card initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
@@ -183,12 +219,25 @@ const EmployeeDashboard = () => {
         <Card initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
           <CardTitle>Active Rentals</CardTitle>
           <List>
-            {activeRentals.map(rental => (
-              <ListItem key={rental.id} whileHover={{ scale: 1.02 }}>
-                <p className="font-medium">Game: {rental.gameName} (ID: {rental.gameId})</p>
-                <p>Time: {rental.totalTime} minutes</p>
-              </ListItem>
-            ))}
+            {activeRentals.length > 0 ? (
+              activeRentals.map(rental => (
+                <ListItem key={rental.id} whileHover={{ scale: 1.02 }}>
+                  <div>
+                    <p className="font-medium">Game: {rental.gameName} (ID: {rental.gameId})</p>
+                    <p>Time: {rental.totalTime} minutes</p>
+                  </div>
+                  <EndButton
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => endRentalSession(rental.id)}
+                  >
+                    End Session
+                  </EndButton>
+                </ListItem>
+              ))
+            ) : (
+              <p>No active rentals.</p>
+            )}
           </List>
         </Card>
 

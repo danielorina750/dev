@@ -70,6 +70,13 @@ const Button = styled(motion.button)`
   }
 `;
 
+const ErrorText = styled.p`
+  color: #e11d48;
+  font-size: 1rem;
+  margin-top: 0.5rem;
+  text-align: center;
+`;
+
 const QRGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -113,6 +120,7 @@ const AdminDashboard = () => {
   const [employeeEmail, setEmployeeEmail] = useState('');
   const [employeePassword, setEmployeePassword] = useState('');
   const [employeeBranch, setEmployeeBranch] = useState('');
+  const [employeeError, setEmployeeError] = useState(null); // New state for add employee errors
   const [topGames, setTopGames] = useState({ daily: [], weekly: [], monthly: [] });
   const [topEmployees, setTopEmployees] = useState({ daily: [], weekly: [], monthly: [] });
   const [allEmployees, setAllEmployees] = useState([]);
@@ -150,43 +158,49 @@ const AdminDashboard = () => {
   };
 
   const addEmployee = async () => {
+    console.log('Add Employee clicked:', { email: employeeEmail, password: employeePassword, branch: employeeBranch });
+    if (!employeeEmail || !employeePassword || !employeeBranch) {
+      setEmployeeError('Please fill in all fields.');
+      return;
+    }
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, employeeEmail, employeePassword);
       const user = userCredential.user;
+      console.log('New user created:', user.uid);
       await setDoc(doc(db, 'users', user.uid), {
         email: employeeEmail,
         role: 'employee',
         branchId: employeeBranch,
       });
-      console.log('Employee added:', user.uid);
+      console.log('Employee added to Firestore:', user.uid);
       setEmployeeEmail('');
       setEmployeePassword('');
       setEmployeeBranch('');
+      setEmployeeError(null); // Clear error on success
     } catch (error) {
       console.error('Error adding employee:', error.message);
+      setEmployeeError(error.message || 'Failed to add employee.');
     }
   };
 
   const fetchRevenueAndPerformance = () => {
-    // Fetch all employees
     const unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
       const employees = snapshot.docs
         .filter(doc => doc.data().role === 'employee')
         .map(doc => ({
           uid: doc.id,
           email: doc.data().email,
-          revenue: 0 // Initialize revenue
+          revenue: 0
         }));
-      console.log('Fetched employees:', employees);
+      console.log('Fetched employees from Firestore:', employees);
       setAllEmployees(employees);
     }, (error) => {
       console.error('Error fetching users:', error.message);
     });
 
-    // Fetch rentals and update employee revenue
     const unsubscribeRentals = onSnapshot(collection(db, 'rentals'), async (snapshot) => {
       const rentals = snapshot.docs.map(doc => doc.data());
-      console.log('Fetched rentals:', rentals);
+      console.log('Fetched rentals from Firestore:', rentals);
       const gamesSnapshot = await getDocs(collection(db, 'games'));
       const gameMap = {};
       gamesSnapshot.forEach(doc => gameMap[doc.id] = doc.data().name);
@@ -238,7 +252,6 @@ const AdminDashboard = () => {
         }
       });
 
-      // Update allEmployees with revenue
       const updatedEmployees = allEmployees.map(emp => ({
         ...emp,
         revenue: revenueByEmployee[emp.uid] || 0
@@ -329,6 +342,7 @@ const AdminDashboard = () => {
           <Button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={addEmployee}>
             Add Employee
           </Button>
+          {employeeError && <ErrorText>{employeeError}</ErrorText>}
         </Card>
 
         <Card initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6 }} className="col-span-1 md:col-span-2 lg:col-span-3">
@@ -374,7 +388,7 @@ const AdminDashboard = () => {
               ))}
             </List>
           ) : (
-            <p>No employees found.</p>
+            <p>No employees found in Firestore.</p>
           )}
         </Card>
 
