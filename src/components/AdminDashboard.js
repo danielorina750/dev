@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
-import { collection, addDoc, getDocs, updateDoc, doc, setDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, updateDoc, doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import QRCode from 'qrcode';
 import { Bar } from 'react-chartjs-2';
@@ -10,7 +10,6 @@ import styled from 'styled-components';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
-// Styled Components
 const Container = styled.div`
   min-height: 100vh;
   background: linear-gradient(135deg, #1e3a8a, #9333ea);
@@ -18,7 +17,7 @@ const Container = styled.div`
   font-family: 'Arial', sans-serif;
 `;
 
-const DashboardTitle = styled.h1` // Renamed from Title to avoid conflict
+const DashboardTitle = styled.h1`
   color: white;
   font-size: 2.5rem;
   font-weight: bold;
@@ -95,11 +94,20 @@ const ListItem = styled.li`
   color: #333;
 `;
 
+const TotalRevenueText = styled.p`
+  color: #f97316;
+  font-size: 1.75rem;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 1rem;
+`;
+
 const AdminDashboard = () => {
   const [gameName, setGameName] = useState('');
   const [branchId, setBranchId] = useState('');
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [revenue, setRevenue] = useState({});
+  const [totalRevenue, setTotalRevenue] = useState(0);
   const [activeGames, setActiveGames] = useState([]);
   const [allGames, setAllGames] = useState([]);
   const [employeeEmail, setEmployeeEmail] = useState('');
@@ -107,6 +115,7 @@ const AdminDashboard = () => {
   const [employeeBranch, setEmployeeBranch] = useState('');
   const [topGames, setTopGames] = useState({ daily: [], weekly: [], monthly: [] });
   const [topEmployees, setTopEmployees] = useState({ daily: [], weekly: [], monthly: [] });
+  const [allEmployees, setAllEmployees] = useState([]);
 
   const fetchAllGames = async () => {
     const gamesSnapshot = await getDocs(collection(db, 'games'));
@@ -158,86 +167,111 @@ const AdminDashboard = () => {
     }
   };
 
-  const fetchRevenue = async () => {
-    const rentals = await getDocs(collection(db, 'rentals'));
-    const revenueByEmployee = {};
-    rentals.forEach(doc => {
-      const data = doc.data();
-      if (data.status === 'completed') {
-        revenueByEmployee[data.employeeId] = (revenueByEmployee[data.employeeId] || 0) + (data.cost || 0);
-      }
+  const fetchRevenueAndPerformance = () => {
+    // Fetch all employees
+    const unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+      const employees = snapshot.docs
+        .filter(doc => doc.data().role === 'employee')
+        .map(doc => ({
+          uid: doc.id,
+          email: doc.data().email,
+          revenue: 0 // Initialize revenue
+        }));
+      console.log('Fetched employees:', employees);
+      setAllEmployees(employees);
+    }, (error) => {
+      console.error('Error fetching users:', error.message);
     });
-    setRevenue(revenueByEmployee);
-  };
 
-  const fetchActiveGames = async () => {
-    const games = await getDocs(collection(db, 'games'));
-    const rentals = await getDocs(collection(db, 'rentals'));
-    const gameUsage = {};
-    rentals.forEach(doc => {
-      const gameId = doc.data().gameId;
-      gameUsage[gameId] = (gameUsage[gameId] || 0) + 1;
+    // Fetch rentals and update employee revenue
+    const unsubscribeRentals = onSnapshot(collection(db, 'rentals'), async (snapshot) => {
+      const rentals = snapshot.docs.map(doc => doc.data());
+      console.log('Fetched rentals:', rentals);
+      const gamesSnapshot = await getDocs(collection(db, 'games'));
+      const gameMap = {};
+      gamesSnapshot.forEach(doc => gameMap[doc.id] = doc.data().name);
+
+      const now = new Date();
+      const dayMs = 24 * 60 * 60 * 1000;
+      const weekMs = 7 * dayMs;
+      const monthMs = 30 * dayMs;
+
+      const filterByTime = (rentals, periodMs) => rentals.filter(r => 
+        new Date(r.startTime) > now - periodMs && r.status === 'completed'
+      );
+
+      const dailyRentals = filterByTime(rentals, dayMs);
+      const weeklyRentals = filterByTime(rentals, weekMs);
+      const monthlyRentals = filterByTime(rentals, monthMs);
+
+      const calcTopGames = (rentals) => {
+        const gameCount = {};
+        rentals.forEach(r => gameCount[r.gameId] = (gameCount[r.gameId] || 0) + 1);
+        return Object.entries(gameCount)
+          .map(([id, count]) => ({ name: gameMap[id] || id, count }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 5);
+      };
+
+      const calcTopEmployees = (rentals) => {
+        const empRevenue = {};
+        rentals.forEach(r => {
+          if (r.employeeId && r.employeeId !== 'null' && r.employeeId !== 'undefined') {
+            empRevenue[r.employeeId] = (empRevenue[r.employeeId] || 0) + (r.cost || 0);
+          }
+        });
+        return Object.entries(empRevenue)
+          .map(([id, revenue]) => ({ 
+            id: allEmployees.find(emp => emp.uid === id)?.email || id, 
+            revenue 
+          }))
+          .sort((a, b) => b.revenue - a.revenue)
+          .slice(0, 5);
+      };
+
+      const revenueByEmployee = {};
+      let totalRev = 0;
+      rentals.forEach(doc => {
+        if (doc.status === 'completed' && doc.employeeId && doc.employeeId !== 'null' && doc.employeeId !== 'undefined') {
+          revenueByEmployee[doc.employeeId] = (revenueByEmployee[doc.employeeId] || 0) + (doc.cost || 0);
+          totalRev += doc.cost || 0;
+        }
+      });
+
+      // Update allEmployees with revenue
+      const updatedEmployees = allEmployees.map(emp => ({
+        ...emp,
+        revenue: revenueByEmployee[emp.uid] || 0
+      }));
+
+      setRevenue(revenueByEmployee);
+      setTotalRevenue(totalRev);
+      setAllEmployees(updatedEmployees);
+      setActiveGames(gamesSnapshot.docs.map(doc => doc.data()).slice(0, 5));
+      setTopGames({
+        daily: calcTopGames(dailyRentals),
+        weekly: calcTopGames(weeklyRentals),
+        monthly: calcTopGames(monthlyRentals),
+      });
+      setTopEmployees({
+        daily: calcTopEmployees(dailyRentals),
+        weekly: calcTopEmployees(weeklyRentals),
+        monthly: calcTopEmployees(monthlyRentals),
+      });
+    }, (error) => {
+      console.error('Error fetching rentals:', error.message);
     });
-    const sortedGames = games.docs
-      .map(doc => ({ id: doc.id, ...doc.data() }))
-      .sort((a, b) => (gameUsage[b.id] || 0) - (gameUsage[a.id] || 0));
-    setActiveGames(sortedGames.slice(0, 5));
-  };
 
-  const fetchPerformanceData = async () => {
-    const rentals = await getDocs(collection(db, 'rentals'));
-    const games = await getDocs(collection(db, 'games'));
-    const gameMap = {};
-    games.forEach(doc => gameMap[doc.id] = doc.data().name);
-
-    const now = new Date();
-    const dayMs = 24 * 60 * 60 * 1000;
-    const weekMs = 7 * dayMs;
-    const monthMs = 30 * dayMs;
-
-    const filterByTime = (rentals, periodMs) => rentals.filter(r => 
-      new Date(r.startTime) > now - periodMs && r.status === 'completed'
-    );
-
-    const dailyRentals = filterByTime(rentals.docs.map(doc => doc.data()), dayMs);
-    const weeklyRentals = filterByTime(rentals.docs.map(doc => doc.data()), weekMs);
-    const monthlyRentals = filterByTime(rentals.docs.map(doc => doc.data()), monthMs);
-
-    const calcTopGames = (rentals) => {
-      const gameCount = {};
-      rentals.forEach(r => gameCount[r.gameId] = (gameCount[r.gameId] || 0) + 1);
-      return Object.entries(gameCount)
-        .map(([id, count]) => ({ name: gameMap[id] || id, count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 5);
+    return () => {
+      unsubscribeUsers();
+      unsubscribeRentals();
     };
-
-    const calcTopEmployees = (rentals) => {
-      const empRevenue = {};
-      rentals.forEach(r => empRevenue[r.employeeId] = (empRevenue[r.employeeId] || 0) + (r.cost || 0));
-      return Object.entries(empRevenue)
-        .map(([id, revenue]) => ({ id, revenue }))
-        .sort((a, b) => b.revenue - a.revenue)
-        .slice(0, 5);
-    };
-
-    setTopGames({
-      daily: calcTopGames(dailyRentals),
-      weekly: calcTopGames(weeklyRentals),
-      monthly: calcTopGames(monthlyRentals),
-    });
-    setTopEmployees({
-      daily: calcTopEmployees(dailyRentals),
-      weekly: calcTopEmployees(weeklyRentals),
-      monthly: calcTopEmployees(monthlyRentals),
-    });
   };
 
   useEffect(() => {
-    fetchRevenue();
-    fetchActiveGames();
     fetchAllGames();
-    fetchPerformanceData();
+    const unsubscribe = fetchRevenueAndPerformance();
+    return () => unsubscribe();
   }, []);
 
   const chartOptions = {
@@ -268,6 +302,8 @@ const AdminDashboard = () => {
       >
         <DashboardTitle>Admin Dashboard</DashboardTitle>
       </motion.div>
+
+      <TotalRevenueText>Total Revenue Collected: {totalRevenue} bob</TotalRevenueText>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <Card initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
@@ -331,11 +367,15 @@ const AdminDashboard = () => {
 
         <Card initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.2 }}>
           <CardTitle>Revenue by Employee</CardTitle>
-          <List>
-            {Object.entries(revenue).map(([empId, rev]) => (
-              <ListItem key={empId}>{empId}: {rev} bob</ListItem>
-            ))}
-          </List>
+          {allEmployees.length > 0 ? (
+            <List>
+              {allEmployees.map(emp => (
+                <ListItem key={emp.uid}>{emp.email}: {emp.revenue} bob</ListItem>
+              ))}
+            </List>
+          ) : (
+            <p>No employees found.</p>
+          )}
         </Card>
 
         <Card initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.4 }}>

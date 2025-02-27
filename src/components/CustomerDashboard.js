@@ -24,7 +24,7 @@ const Card = styled(motion.div)`
   text-align: center;
 `;
 
-const Title = styled.h1`
+const DashboardTitle = styled.h1`
   color: #1e3a8a;
   font-size: 2rem;
   font-weight: bold;
@@ -50,6 +50,12 @@ const CostText = styled.p`
   font-weight: bold;
 `;
 
+const HistoryText = styled.p`
+  color: #333;
+  font-size: 1.25rem;
+  margin-bottom: 1rem;
+`;
+
 const Button = styled(motion.button)`
   padding: 0.75rem 1.5rem;
   background: ${props => props.pause ? '#9333ea' : '#f97316'};
@@ -62,6 +68,10 @@ const Button = styled(motion.button)`
   transition: background 0.3s;
   &:hover {
     background: ${props => props.pause ? '#7e22ce' : '#ea580c'};
+  }
+  &:disabled {
+    background: #ccc;
+    cursor: not-allowed;
   }
 `;
 
@@ -77,11 +87,13 @@ const CustomerDashboard = () => {
   const [cost, setCost] = useState(0);
   const [rentalId, setRentalId] = useState(null);
   const [gameName, setGameName] = useState('');
+  const [isActive, setIsActive] = useState(false);
+  const [rentalHistory, setRentalHistory] = useState(null); // New state for history
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const checkOrStartRental = async () => {
-      console.log('CustomerDashboard: Accessing rental for:', gameId, branchId);
+    const checkRentalStatus = async () => {
+      console.log('CustomerDashboard: Checking rental for:', gameId, branchId);
       const rentalRef = doc(db, 'rentals', `${gameId}-${branchId}`);
       const gameRef = doc(db, 'games', gameId);
 
@@ -89,81 +101,113 @@ const CustomerDashboard = () => {
         const gameDoc = await getDoc(gameRef);
         if (gameDoc.exists()) {
           setGameName(gameDoc.data().name);
+          console.log('Game name:', gameDoc.data().name);
         } else {
-          setError('Game not found.');
+          setError('Game not found in database.');
           return;
         }
 
         const rental = await getDoc(rentalRef);
-        if (rental.exists() && rental.data().status === 'active') {
+        if (rental.exists()) {
+          const rentalData = rental.data();
+          console.log('Rental found:', rentalData);
           setRentalId(rental.id);
-          setTime(rental.data().totalTime || 0);
+          if (rentalData.status === 'active') {
+            setTime(rentalData.totalTime || 0);
+            setIsActive(true);
+            setRentalHistory(null); // Clear history if active
+          } else if (rentalData.status === 'completed') {
+            setCost(rentalData.cost || 0);
+            setTime(rentalData.totalTime || 0);
+            setIsActive(false);
+            setRentalHistory(rentalData); // Show history if completed
+          }
         } else {
-          await setDoc(rentalRef, {
-            gameId,
-            branchId,
-            employeeId: null,
-            customerId: 'cust1',
-            startTime: new Date(),
-            status: 'active',
-            totalTime: 0,
-          });
-          setRentalId(rentalRef.id);
+          console.log('No rental found for this game.');
+          setIsActive(false);
+          setError('No rental record for this game.');
         }
       } catch (error) {
         console.error('Firestore error:', error.message);
         setError('Failed to access rental or game data: ' + error.message);
       }
     };
-    checkOrStartRental();
+    checkRentalStatus();
 
     let interval;
-    if (!isPaused && !error) {
-      interval = setInterval(() => setTime(t => t + 1), 60000);
+    if (!isPaused && isActive && !error) {
+      console.log('Starting timer');
+      interval = setInterval(() => {
+        setTime(t => {
+          console.log('Timer incremented to:', t + 1);
+          return t + 1;
+        });
+      }, 60000);
     }
-    return () => clearInterval(interval);
-  }, [isPaused, branchId, gameId]);
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isPaused, branchId, gameId, isActive]);
 
   useEffect(() => {
-    if (isPaused) {
-      const timeout = setTimeout(() => setIsPaused(false), 20 * 60 * 1000);
+    if (isPaused && rentalId) {
+      const timeout = setTimeout(() => {
+        setIsPaused(false);
+        console.log('Auto-resuming after 20 minutes');
+      }, 20 * 60 * 1000);
       return () => clearTimeout(timeout);
     }
-  }, [isPaused]);
+  }, [isPaused, rentalId]);
 
   const togglePause = async () => {
-    setIsPaused(!isPaused);
-    if (rentalId) {
-      try {
-        await updateDoc(doc(db, 'rentals', rentalId), { totalTime: time });
-      } catch (error) {
-        console.error('Pause error:', error.message);
-      }
+    console.log('Toggle Pause clicked, current isPaused:', isPaused);
+    if (!rentalId || !isActive) {
+      console.log('No active rentalId, cannot pause');
+      return;
+    }
+    try {
+      setIsPaused(prev => !prev);
+      await updateDoc(doc(db, 'rentals', rentalId), { totalTime: time });
+      console.log('Rental updated, paused at:', time);
+    } catch (error) {
+      console.error('Pause error:', error.message);
+      setError('Failed to pause rental: ' + error.message);
     }
   };
 
   const endSession = async () => {
-    const finalCost = time * 3;
-    setCost(finalCost);
-    if (rentalId) {
-      try {
-        await updateDoc(doc(db, 'rentals', rentalId), { totalTime: time, status: 'completed', cost: finalCost });
-      } catch (error) {
-        console.error('End session error:', error.message);
-      }
+    console.log('End Session clicked');
+    if (!rentalId || !isActive) {
+      console.log('No active rentalId, cannot end session');
+      return;
+    }
+    try {
+      const finalCost = time * 3;
+      await updateDoc(doc(db, 'rentals', rentalId), { 
+        totalTime: time, 
+        status: 'completed', 
+        cost: finalCost 
+      });
+      console.log('Session ended, cost:', finalCost);
+      setCost(finalCost);
+      setIsActive(false);
+      setRentalHistory({ gameId, branchId, totalTime: time, cost: finalCost, status: 'completed' });
+    } catch (error) {
+      console.error('End session error:', error.message);
+      setError('Failed to end session: ' + error.message);
     }
   };
 
   return (
     <Container>
       <Card initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.5 }}>
-        <Title>Game Rental - {branchId}</Title>
+        <DashboardTitle>Game Rental - {branchId}</DashboardTitle>
         {error ? (
           <ErrorText>{error}</ErrorText>
-        ) : (
+        ) : isActive ? (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
-              <GameText>Game Rented: {gameName || 'Loading...'}</GameText>
+              <GameText>Game Rented: {gameName}</GameText>
             </motion.div>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
               <TimeText>Time Played: {time} minutes</TimeText>
@@ -192,6 +236,15 @@ const CustomerDashboard = () => {
               </div>
             )}
           </>
+        ) : rentalHistory ? (
+          <>
+            <GameText>Game: {gameName}</GameText>
+            <HistoryText>Time Played: {rentalHistory.totalTime} minutes</HistoryText>
+            <CostText>Total Cost: {rentalHistory.cost} bob</CostText>
+            <p className="text-gray-600 mt-2">Session completed. Scan again to start a new rental.</p>
+          </>
+        ) : (
+          <ErrorText>No rental history for {gameName || 'this game'}.</ErrorText>
         )}
       </Card>
     </Container>
