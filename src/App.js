@@ -1,24 +1,18 @@
-import logo from './logo.svg';
-import './App.css';
+import React from 'react';
+import { BrowserRouter as Router, Route, Routes } from 'react-router-dom'; // Use Routes
+import AdminDashboard from './components/AdminDashboard';
+import EmployeeDashboard from './components/EmployeeDashboard';
+import CustomerDashboard from './components/CustomerDashboard';
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <Router>
+      <Routes> {/* Replace Switch with Routes */}
+        <Route path="/admin" element={<AdminDashboard />} /> {/* Use element prop */}
+        <Route path="/employee" element={<EmployeeDashboard />} />
+        <Route path="/game/:branchId/:gameId" element={<CustomerDashboard />} />
+      </Routes>
+    </Router>
   );
 }
 
