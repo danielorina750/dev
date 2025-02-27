@@ -101,6 +101,7 @@ const CustomerDashboard = () => {
           console.log('Game name:', gameDoc.data().name);
         } else {
           setError('Game not found in database.');
+          console.log('Game not found for ID:', gameId);
           return;
         }
 
@@ -115,11 +116,13 @@ const CustomerDashboard = () => {
             setTime(rentalData.totalTime || 0);
             setIsActive(true);
             setRentalHistory(null);
+            console.log('Active rental loaded, time:', rentalData.totalTime);
           } else if (rentalData.status === 'completed') {
             setCost(rentalData.cost || 0);
             setTime(rentalData.totalTime || 0);
             setIsActive(false);
             setRentalHistory(rentalData);
+            console.log('Completed rental loaded, cost:', rentalData.cost);
           }
         } else {
           // No rental exists—start a new one
@@ -127,7 +130,7 @@ const CustomerDashboard = () => {
           await setDoc(rentalRef, {
             gameId,
             branchId,
-            employeeId: null, // Customer-initiated, no employee
+            employeeId: null,
             customerId: 'cust1',
             startTime: new Date(),
             status: 'active',
@@ -138,6 +141,7 @@ const CustomerDashboard = () => {
           setIsActive(true);
           setCost(0);
           setRentalHistory(null);
+          console.log('New rental created');
         }
       } catch (error) {
         console.error('Firestore error:', error.message);
@@ -250,7 +254,7 @@ const CustomerDashboard = () => {
             <p className="text-gray-600 mt-2">Session completed. Scan again to start a new rental.</p>
           </>
         ) : (
-          <ErrorText>Loading rental status...</ErrorText>
+          <p>Loading rental status...</p>
         )}
       </Card>
     </Container>
