@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { db, auth } from '../firebase';
-import { collection, onSnapshot, getDocs, addDoc, updateDoc, doc, getDoc } from 'firebase/firestore';
+import { collection, onSnapshot, getDocs, addDoc, updateDoc, doc, getDoc, setDoc } from 'firebase/firestore';
 import { motion } from 'framer-motion';
 import styled from 'styled-components';
 
@@ -131,7 +131,8 @@ const EmployeeDashboard = () => {
 
       setActiveRentals(rentalsWithGameNames.filter(r => r.status === 'active'));
       setRentalHistory(rentalsWithGameNames.filter(r => r.status === 'completed'));
-      console.log('Active rentals:', rentalsWithGameNames.filter(r => r.status === 'active'));
+      console.log('Active rentals fetched:', rentalsWithGameNames.filter(r => r.status === 'active'));
+      console.log('Rental history fetched:', rentalsWithGameNames.filter(r => r.status === 'completed'));
     }, (error) => {
       console.error('Firestore listener error:', error.message);
     });
@@ -147,17 +148,16 @@ const EmployeeDashboard = () => {
           console.log('Scanned:', decodedText);
           const [_, branch, gameId] = decodedText.match(/game\/([^/]+)\/([^/]+)/) || [];
           if (branch === branchId) {
-            const rentalsSnapshot = await getDocs(collection(db, 'rentals'));
-            const rentals = rentalsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            const active = rentals.find(r => r.gameId === gameId && r.status === 'active');
-            if (active) {
-              await updateDoc(doc(db, 'rentals', active.id), {
+            const rentalRef = doc(db, 'rentals', `${gameId}-${branchId}`);
+            const rentalDoc = await getDoc(rentalRef);
+            if (rentalDoc.exists() && rentalDoc.data().status === 'active') {
+              await updateDoc(rentalRef, {
                 status: 'completed',
-                cost: active.totalTime * 3,
+                cost: rentalDoc.data().totalTime * 3,
               });
-              console.log('Employee ended rental:', active.id);
+              console.log('Employee ended rental via scan:', rentalRef.id);
             } else {
-              await addDoc(collection(db, 'rentals'), {
+              await setDoc(rentalRef, {
                 gameId,
                 branchId,
                 employeeId: auth.currentUser.uid,
@@ -166,8 +166,8 @@ const EmployeeDashboard = () => {
                 status: 'active',
                 totalTime: 0,
               });
-              console.log('Employee started new rental for game:', gameId);
-              navigate(`/game/${branchId}/${gameId}`);
+              console.log('Employee started new rental via scan:', rentalRef.id);
+              // No redirect—stay on EmployeeDashboard
             }
           }
         },
