@@ -137,7 +137,7 @@ const EmployeeDashboard = () => {
       const active = rentalsWithGameNames.filter(r => r.status === 'active');
       setActiveRentals(active.map(rental => ({
         ...rental,
-        localTime: rental.totalTime || 0 // Initialize local timer
+        localTime: rental.totalTime || 0 // Sync with Firestore totalTime
       })));
       setRentalHistory(rentalsWithGameNames.filter(r => r.status === 'completed'));
       console.log('Active rentals fetched:', active);
@@ -146,15 +146,19 @@ const EmployeeDashboard = () => {
       console.error('Firestore listener error:', error.message);
     });
 
-    // Timer for active rentals
+    // Timer sync with Firestore
     const interval = setInterval(() => {
       setActiveRentals(prev => prev.map(rental => {
-        if (rental.status === 'active' && rental.localTime >= 0) {
-          return { ...rental, localTime: rental.localTime + 1 };
+        if (rental.status === 'active') {
+          const newTime = rental.localTime + 1;
+          // Update Firestore every minute
+          updateDoc(doc(db, 'rentals', rental.id), { totalTime: newTime })
+            .catch(error => console.error('Error updating timer:', error));
+          return { ...rental, localTime: newTime };
         }
         return rental;
       }));
-    }, 60000); // Sync with 1-minute increments
+    }, 60000); // 1 minute, matching customer
 
     return () => {
       if (unsubscribe) unsubscribe();
