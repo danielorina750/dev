@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { db, auth } from '../firebase';
-import { collection, onSnapshot, getDocs, addDoc, updateDoc, doc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, onSnapshot, getDocs, addDoc, updateDoc, doc } from 'firebase/firestore';
 import { motion } from 'framer-motion';
 import styled from 'styled-components';
 
@@ -154,6 +154,7 @@ const EmployeeDashboard = () => {
               await updateDoc(rentalRef, {
                 status: 'completed',
                 cost: rentalDoc.data().totalTime * 3,
+                endTime: new Date()
               });
               console.log('Employee ended rental via scan:', rentalRef.id);
             } else {
@@ -167,7 +168,6 @@ const EmployeeDashboard = () => {
                 totalTime: 0,
               });
               console.log('Employee started new rental via scan:', rentalRef.id);
-              // No redirect—stay on EmployeeDashboard
             }
           }
         },
@@ -190,6 +190,19 @@ const EmployeeDashboard = () => {
         await updateDoc(rentalRef, {
           status: 'completed',
           cost: rentalDoc.data().totalTime * 3,
+          endTime: new Date()
+        });
+        // Add to history
+        const historyCollectionRef = collection(db, 'rentals', rentalId, 'history');
+        await addDoc(historyCollectionRef, {
+          gameId: rentalDoc.data().gameId,
+          branchId: rentalDoc.data().branchId,
+          employeeId: rentalDoc.data().employeeId,
+          customerId: 'cust1',
+          startTime: rentalDoc.data().startTime,
+          totalTime: rentalDoc.data().totalTime,
+          cost: rentalDoc.data().totalTime * 3,
+          endTime: new Date()
         });
         console.log('Employee ended rental via button:', rentalId);
       }

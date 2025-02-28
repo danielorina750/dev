@@ -104,7 +104,7 @@ const CustomerDashboard = () => {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const checkAndStartRental = async () => {
+    const checkRentalStatus = async () => {
       console.log('CustomerDashboard: Checking rental for:', gameId, branchId);
       const rentalRef = doc(db, 'rentals', `${gameId}-${branchId}`);
       const gameRef = doc(db, 'games', gameId);
@@ -134,45 +134,16 @@ const CustomerDashboard = () => {
             setIsActive(true);
             console.log('Active rental loaded, time:', rentalData.totalTime);
           } else if (rentalData.status === 'completed') {
-            console.log('Current rental completed, starting new one');
-            // Move completed rental to history
-            await addDoc(historyCollectionRef, {
-              ...rentalData,
-              endTime: new Date()
-            });
-            // Start new rental
-            await setDoc(rentalRef, {
-              gameId,
-              branchId,
-              employeeId: null,
-              customerId: 'cust1',
-              startTime: new Date(),
-              status: 'active',
-              totalTime: 0,
-            });
-            setRentalId(`${gameId}-${branchId}`);
-            setTime(0);
-            setIsActive(true);
-            setCost(0);
-            console.log('New rental started over completed one');
+            setCost(rentalData.cost || 0);
+            setTime(rentalData.totalTime || 0);
+            setIsActive(false);
+            console.log('Completed rental loaded, cost:', rentalData.cost);
+            // No automatic restart—wait for rescan
           }
         } else {
-          // No rental exists—start a new one
-          console.log('No rental exists, creating new rental');
-          await setDoc(rentalRef, {
-            gameId,
-            branchId,
-            employeeId: null,
-            customerId: 'cust1',
-            startTime: new Date(),
-            status: 'active',
-            totalTime: 0,
-          });
-          setRentalId(`${gameId}-${branchId}`);
-          setTime(0);
-          setIsActive(true);
-          setCost(0);
-          console.log('New rental created');
+          // No rental exists—wait for scan to start
+          console.log('No rental exists, waiting for scan');
+          setIsActive(false);
         }
 
         // Fetch rental history
@@ -195,7 +166,7 @@ const CustomerDashboard = () => {
         setError('Failed to access rental or game data: ' + error.message);
       }
     };
-    checkAndStartRental();
+    checkRentalStatus();
 
     let interval;
     if (!isPaused && isActive && !error) {
@@ -250,17 +221,59 @@ const CustomerDashboard = () => {
         totalTime: time, 
         status: 'completed', 
         cost: finalCost,
-        endTime: new Date() // Add endTime for history
+        endTime: new Date()
+      });
+      // Add to history
+      const historyCollectionRef = collection(db, 'rentals', rentalId, 'history');
+      await addDoc(historyCollectionRef, {
+        gameId,
+        branchId,
+        employeeId: null,
+        customerId: 'cust1',
+        startTime: new Date(rentalId.split('-')[1]), // Approximate from rental creation
+        totalTime: time,
+        cost: finalCost,
+        endTime: new Date()
       });
       console.log('Session ended, cost:', finalCost);
       setCost(finalCost);
       setIsActive(false);
-      // Move to history happens on next scan
     } catch (error) {
       console.error('End session error:', error.message);
       setError('Failed to end session: ' + error.message);
     }
   };
+
+  const startNewRental = async () => {
+    console.log('Starting new rental via scan');
+    const rentalRef = doc(db, 'rentals', `${gameId}-${branchId}`);
+    try {
+      await setDoc(rentalRef, {
+        gameId,
+        branchId,
+        employeeId: null,
+        customerId: 'cust1',
+        startTime: new Date(),
+        status: 'active',
+        totalTime: 0,
+      });
+      setRentalId(`${gameId}-${branchId}`);
+      setTime(0);
+      setIsActive(true);
+      setCost(0);
+      console.log('New rental started');
+    } catch (error) {
+      console.error('Start rental error:', error.message);
+      setError('Failed to start new rental: ' + error.message);
+    }
+  };
+
+  useEffect(() => {
+    // Trigger new rental on mount (simulating scan)
+    if (!isActive && !rentalHistory.length) {
+      startNewRental();
+    }
+  }, [branchId, gameId]);
 
   return (
     <Container>
@@ -268,54 +281,50 @@ const CustomerDashboard = () => {
         <DashboardTitle>Game Rental - {branchId}</DashboardTitle>
         {error ? (
           <ErrorText>{error}</ErrorText>
-        ) : (
+        ) : isActive ? (
           <>
-            {isActive ? (
-              <>
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
-                  <GameText>Game Rented: {gameName}</GameText>
-                </motion.div>
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
-                  <TimeText>Time Played: {time} minutes</TimeText>
-                </motion.div>
-                <div className="flex justify-center gap-4">
-                  <Button
-                    pause
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={togglePause}
-                  >
-                    {isPaused ? 'Resume' : 'Pause'}
-                  </Button>
-                  <Button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={endSession}
-                  >
-                    End Session
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <p className="text-gray-600 mt-2">Scan to start a new rental.</p>
-            )}
-            <HistorySection>
-              <HistoryTitle>Rental History</HistoryTitle>
-              {rentalHistory.length > 0 ? (
-                <HistoryList>
-                  {rentalHistory.map(entry => (
-                    <HistoryItem key={entry.id}>
-                      Started: {entry.startTime} | Time: {entry.totalTime} min | Cost: {entry.cost || 0} bob
-                      {entry.endTime && ` | Ended: ${entry.endTime}`}
-                    </HistoryItem>
-                  ))}
-                </HistoryList>
-              ) : (
-                <p>No rental history yet.</p>
-              )}
-            </HistorySection>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
+              <GameText>Game Rented: {gameName}</GameText>
+            </motion.div>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
+              <TimeText>Time Played: {time} minutes</TimeText>
+            </motion.div>
+            <div className="flex justify-center gap-4">
+              <Button
+                pause
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={togglePause}
+              >
+                {isPaused ? 'Resume' : 'Pause'}
+              </Button>
+              <Button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={endSession}
+              >
+                End Session
+              </Button>
+            </div>
           </>
+        ) : (
+          <p className="text-gray-600 mt-2">Scan to start a new rental.</p>
         )}
+        <HistorySection>
+          <HistoryTitle>Rental History</HistoryTitle>
+          {rentalHistory.length > 0 ? (
+            <HistoryList>
+              {rentalHistory.map(entry => (
+                <HistoryItem key={entry.id}>
+                  Started: {entry.startTime} | Time: {entry.totalTime} min | Cost: {entry.cost || 0} bob
+                  {entry.endTime && ` | Ended: ${entry.endTime}`}
+                </HistoryItem>
+              ))}
+            </HistoryList>
+          ) : (
+            <p>No rental history yet.</p>
+          )}
+        </HistorySection>
       </Card>
     </Container>
   );
