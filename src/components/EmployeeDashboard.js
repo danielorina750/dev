@@ -78,6 +78,11 @@ const EndButton = styled(motion.button)`
   }
 `;
 
+const TimerText = styled.span`
+  color: #9333ea;
+  font-weight: 600;
+`;
+
 const EmployeeDashboard = () => {
   const [scanner, setScanner] = useState(null);
   const [activeRentals, setActiveRentals] = useState([]);
@@ -129,14 +134,35 @@ const EmployeeDashboard = () => {
         })
       );
 
-      setActiveRentals(rentalsWithGameNames.filter(r => r.status === 'active'));
+      const active = rentalsWithGameNames.filter(r => r.status === 'active');
+      setActiveRentals(active.map(rental => ({
+        ...rental,
+        localTime: rental.totalTime || 0 // Initialize local timer
+      })));
       setRentalHistory(rentalsWithGameNames.filter(r => r.status === 'completed'));
-      console.log('Active rentals fetched:', rentalsWithGameNames.filter(r => r.status === 'active'));
+      console.log('Active rentals fetched:', active);
       console.log('Rental history fetched:', rentalsWithGameNames.filter(r => r.status === 'completed'));
     }, (error) => {
       console.error('Firestore listener error:', error.message);
     });
 
+    // Timer for active rentals
+    const interval = setInterval(() => {
+      setActiveRentals(prev => prev.map(rental => {
+        if (rental.status === 'active' && rental.localTime >= 0) {
+          return { ...rental, localTime: rental.localTime + 1 };
+        }
+        return rental;
+      }));
+    }, 60000); // Sync with 1-minute increments
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+      clearInterval(interval);
+    };
+  }, [branchId]);
+
+  useEffect(() => {
     if (!scannerRef.current) {
       const qrScanner = new Html5QrcodeScanner(
         'reader',
@@ -176,10 +202,6 @@ const EmployeeDashboard = () => {
       scannerRef.current = qrScanner;
       setScanner(qrScanner);
     }
-
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
   }, [branchId, navigate]);
 
   const endRentalSession = async (rentalId) => {
@@ -192,7 +214,6 @@ const EmployeeDashboard = () => {
           cost: rentalDoc.data().totalTime * 3,
           endTime: new Date()
         });
-        // Add to history
         const historyCollectionRef = collection(db, 'rentals', rentalId, 'history');
         await addDoc(historyCollectionRef, {
           gameId: rentalDoc.data().gameId,
@@ -237,7 +258,7 @@ const EmployeeDashboard = () => {
                 <ListItem key={rental.id} whileHover={{ scale: 1.02 }}>
                   <div>
                     <p className="font-medium">Game: {rental.gameName} (ID: {rental.gameId})</p>
-                    <p>Time: {rental.totalTime} minutes</p>
+                    <p>Time: <TimerText>{rental.localTime}</TimerText> minutes</p>
                   </div>
                   <EndButton
                     whileHover={{ scale: 1.05 }}

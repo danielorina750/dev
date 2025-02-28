@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
 import { doc, setDoc, updateDoc, getDoc, collection, addDoc, onSnapshot } from 'firebase/firestore';
 import { motion } from 'framer-motion';
@@ -74,7 +74,7 @@ const HistoryItem = styled.li`
 
 const Button = styled(motion.button)`
   padding: 0.75rem 1.5rem;
-  background: ${props => props.pause ? '#9333ea' : '#f97316'};
+  background: ${props => props.pause ? '#9333ea' : props.rescan ? '#1e3a8a' : '#f97316'};
   color: white;
   font-weight: bold;
   border: none;
@@ -83,7 +83,7 @@ const Button = styled(motion.button)`
   margin: 0 0.5rem;
   transition: background 0.3s;
   &:hover {
-    background: ${props => props.pause ? '#7e22ce' : '#ea580c'};
+    background: ${props => props.pause ? '#7e22ce' : props.rescan ? '#1e40af' : '#ea580c'};
   }
 `;
 
@@ -94,6 +94,7 @@ const ErrorText = styled.p`
 
 const CustomerDashboard = () => {
   const { branchId, gameId } = useParams();
+  const navigate = useNavigate();
   const [time, setTime] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const [cost, setCost] = useState(0);
@@ -122,32 +123,37 @@ const CustomerDashboard = () => {
           return;
         }
 
-        // Check current rental status
-        const rental = await getDoc(rentalRef);
-        if (rental.exists()) {
-          const rentalData = rental.data();
-          console.log('Current rental found:', rentalData);
-          setRentalId(rental.id);
+        // Check current rental status with real-time listener
+        const unsubscribeRental = onSnapshot(rentalRef, (doc) => {
+          if (doc.exists()) {
+            const rentalData = doc.data();
+            console.log('Current rental updated:', rentalData);
+            setRentalId(doc.id);
 
-          if (rentalData.status === 'active') {
-            setTime(rentalData.totalTime || 0);
-            setIsActive(true);
-            console.log('Active rental loaded, time:', rentalData.totalTime);
-          } else if (rentalData.status === 'completed') {
-            setCost(rentalData.cost || 0);
-            setTime(rentalData.totalTime || 0);
+            if (rentalData.status === 'active') {
+              setTime(rentalData.totalTime || 0);
+              setIsActive(true);
+              console.log('Active rental loaded, time:', rentalData.totalTime);
+            } else if (rentalData.status === 'completed') {
+              setCost(rentalData.cost || 0);
+              setTime(rentalData.totalTime || 0);
+              setIsActive(false);
+              console.log('Completed rental loaded, cost:', rentalData.cost);
+            }
+          } else {
+            console.log('No rental exists, waiting for scan');
             setIsActive(false);
-            console.log('Completed rental loaded, cost:', rentalData.cost);
-            // No automatic restart—wait for rescan
+            setTime(0);
+            setCost(0);
+            setRentalId(null);
           }
-        } else {
-          // No rental exists—wait for scan to start
-          console.log('No rental exists, waiting for scan');
-          setIsActive(false);
-        }
+        }, (error) => {
+          console.error('Error listening to rental:', error.message);
+          setError('Failed to fetch rental data: ' + error.message);
+        });
 
         // Fetch rental history
-        const unsubscribe = onSnapshot(historyCollectionRef, (snapshot) => {
+        const unsubscribeHistory = onSnapshot(historyCollectionRef, (snapshot) => {
           const history = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data(),
@@ -160,7 +166,10 @@ const CustomerDashboard = () => {
           console.error('Error fetching history:', error.message);
         });
 
-        return () => unsubscribe();
+        return () => {
+          unsubscribeRental();
+          unsubscribeHistory();
+        };
       } catch (error) {
         console.error('Firestore error:', error.message);
         setError('Failed to access rental or game data: ' + error.message);
@@ -230,7 +239,7 @@ const CustomerDashboard = () => {
         branchId,
         employeeId: null,
         customerId: 'cust1',
-        startTime: new Date(rentalId.split('-')[1]), // Approximate from rental creation
+        startTime: new Date(rentalId.split('-')[1]), // Approximate start time
         totalTime: time,
         cost: finalCost,
         endTime: new Date()
@@ -244,36 +253,11 @@ const CustomerDashboard = () => {
     }
   };
 
-  const startNewRental = async () => {
-    console.log('Starting new rental via scan');
-    const rentalRef = doc(db, 'rentals', `${gameId}-${branchId}`);
-    try {
-      await setDoc(rentalRef, {
-        gameId,
-        branchId,
-        employeeId: null,
-        customerId: 'cust1',
-        startTime: new Date(),
-        status: 'active',
-        totalTime: 0,
-      });
-      setRentalId(`${gameId}-${branchId}`);
-      setTime(0);
-      setIsActive(true);
-      setCost(0);
-      console.log('New rental started');
-    } catch (error) {
-      console.error('Start rental error:', error.message);
-      setError('Failed to start new rental: ' + error.message);
-    }
+  const handleRescan = () => {
+    console.log('Rescan clicked, prompting QR scan');
+    // Navigate back to root to prompt rescan (assumes QR scan triggers route change)
+    navigate('/');
   };
-
-  useEffect(() => {
-    // Trigger new rental on mount (simulating scan)
-    if (!isActive && !rentalHistory.length) {
-      startNewRental();
-    }
-  }, [branchId, gameId]);
 
   return (
     <Container>
@@ -308,7 +292,23 @@ const CustomerDashboard = () => {
             </div>
           </>
         ) : (
-          <p className="text-gray-600 mt-2">Scan to start a new rental.</p>
+          <>
+            {cost > 0 && (
+              <>
+                <GameText>Game: {gameName}</GameText>
+                <HistoryText>Time Played: {time} minutes</HistoryText>
+                <CostText>Total Cost: {cost} bob</CostText>
+              </>
+            )}
+            <Button
+              rescan
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleRescan}
+            >
+              Rescan to Start
+            </Button>
+          </>
         )}
         <HistorySection>
           <HistoryTitle>Rental History</HistoryTitle>
