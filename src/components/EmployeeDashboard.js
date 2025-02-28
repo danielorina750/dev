@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { db, auth } from '../firebase';
@@ -90,6 +90,7 @@ const EmployeeDashboard = () => {
   const [branchId, setBranchId] = useState('');
   const navigate = useNavigate();
   const scannerRef = useRef(null);
+  const timerRef = useRef(null);
 
   useEffect(() => {
     let unsubscribe;
@@ -116,8 +117,17 @@ const EmployeeDashboard = () => {
       if (scannerRef.current) {
         scannerRef.current.clear().catch(error => console.error('Scanner cleanup error:', error));
       }
+      if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [navigate]);
+
+  const updateRentalTime = useCallback(async (rentalId, currentTime) => {
+    try {
+      await updateDoc(doc(db, 'rentals', rentalId), { totalTime: currentTime + 1 });
+    } catch (error) {
+      console.error('Error updating rental time:', error.message);
+    }
+  }, []);
 
   useEffect(() => {
     if (!branchId) return;
@@ -135,10 +145,7 @@ const EmployeeDashboard = () => {
       );
 
       const active = rentalsWithGameNames.filter(r => r.status === 'active');
-      setActiveRentals(active.map(rental => ({
-        ...rental,
-        localTime: rental.totalTime || 0 // Sync with Firestore totalTime
-      })));
+      setActiveRentals(active);
       setRentalHistory(rentalsWithGameNames.filter(r => r.status === 'completed'));
       console.log('Active rentals fetched:', active);
       console.log('Rental history fetched:', rentalsWithGameNames.filter(r => r.status === 'completed'));
@@ -146,25 +153,26 @@ const EmployeeDashboard = () => {
       console.error('Firestore listener error:', error.message);
     });
 
-    // Timer sync with Firestore
-    const interval = setInterval(() => {
-      setActiveRentals(prev => prev.map(rental => {
-        if (rental.status === 'active') {
-          const newTime = rental.localTime + 1;
-          // Update Firestore every minute
-          updateDoc(doc(db, 'rentals', rental.id), { totalTime: newTime })
-            .catch(error => console.error('Error updating timer:', error));
-          return { ...rental, localTime: newTime };
-        }
-        return rental;
-      }));
-    }, 60000); // 1 minute, matching customer
+    // Timer for active rentals
+    timerRef.current = setInterval(() => {
+      setActiveRentals(prev => {
+        if (prev.length === 0) return prev;
+        return prev.map(rental => {
+          if (rental.status === 'active') {
+            const newTime = (rental.totalTime || 0) + 1;
+            updateRentalTime(rental.id, newTime);
+            return { ...rental, totalTime: newTime };
+          }
+          return rental;
+        });
+      });
+    }, 60000); // 1 minute
 
     return () => {
       if (unsubscribe) unsubscribe();
-      clearInterval(interval);
+      if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [branchId]);
+  }, [branchId, updateRentalTime]);
 
   useEffect(() => {
     if (!scannerRef.current) {
@@ -262,7 +270,7 @@ const EmployeeDashboard = () => {
                 <ListItem key={rental.id} whileHover={{ scale: 1.02 }}>
                   <div>
                     <p className="font-medium">Game: {rental.gameName} (ID: {rental.gameId})</p>
-                    <p>Time: <TimerText>{rental.localTime}</TimerText> minutes</p>
+                    <p>Time: <TimerText>{rental.totalTime}</TimerText> minutes</p>
                   </div>
                   <EndButton
                     whileHover={{ scale: 1.05 }}
