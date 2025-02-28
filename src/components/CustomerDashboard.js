@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { db } from '../firebase';
-import { doc, setDoc, updateDoc, getDoc } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, getDoc, collection, addDoc, onSnapshot } from 'firebase/firestore';
 import { motion } from 'framer-motion';
 import styled from 'styled-components';
 
@@ -20,7 +20,7 @@ const Card = styled(motion.div)`
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
   padding: 2rem;
   width: 100%;
-  max-width: 400px;
+  max-width: 500px;
   text-align: center;
 `;
 
@@ -50,10 +50,26 @@ const CostText = styled.p`
   font-weight: bold;
 `;
 
-const HistoryText = styled.p`
-  color: #333;
-  font-size: 1.25rem;
+const HistorySection = styled.div`
+  margin-top: 2rem;
+`;
+
+const HistoryTitle = styled.h2`
+  color: #1e3a8a;
+  font-size: 1.5rem;
+  font-weight: 600;
   margin-bottom: 1rem;
+`;
+
+const HistoryList = styled.ul`
+  list-style: none;
+  padding: 0;
+`;
+
+const HistoryItem = styled.li`
+  padding: 0.5rem 0;
+  color: #333;
+  border-bottom: 1px solid #e5e7eb;
 `;
 
 const Button = styled(motion.button)`
@@ -84,7 +100,7 @@ const CustomerDashboard = () => {
   const [rentalId, setRentalId] = useState(null);
   const [gameName, setGameName] = useState('');
   const [isActive, setIsActive] = useState(false);
-  const [rentalHistory, setRentalHistory] = useState(null);
+  const [rentalHistory, setRentalHistory] = useState([]);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -92,6 +108,7 @@ const CustomerDashboard = () => {
       console.log('CustomerDashboard: Checking rental for:', gameId, branchId);
       const rentalRef = doc(db, 'rentals', `${gameId}-${branchId}`);
       const gameRef = doc(db, 'games', gameId);
+      const historyCollectionRef = collection(db, 'rentals', `${gameId}-${branchId}`, 'history');
 
       try {
         // Fetch game name
@@ -105,24 +122,39 @@ const CustomerDashboard = () => {
           return;
         }
 
-        // Check rental status
+        // Check current rental status
         const rental = await getDoc(rentalRef);
         if (rental.exists()) {
           const rentalData = rental.data();
-          console.log('Rental found:', rentalData);
+          console.log('Current rental found:', rentalData);
           setRentalId(rental.id);
 
           if (rentalData.status === 'active') {
             setTime(rentalData.totalTime || 0);
             setIsActive(true);
-            setRentalHistory(null);
             console.log('Active rental loaded, time:', rentalData.totalTime);
           } else if (rentalData.status === 'completed') {
-            setCost(rentalData.cost || 0);
-            setTime(rentalData.totalTime || 0);
-            setIsActive(false);
-            setRentalHistory(rentalData);
-            console.log('Completed rental loaded, cost:', rentalData.cost);
+            console.log('Current rental completed, starting new one');
+            // Move completed rental to history
+            await addDoc(historyCollectionRef, {
+              ...rentalData,
+              endTime: new Date()
+            });
+            // Start new rental
+            await setDoc(rentalRef, {
+              gameId,
+              branchId,
+              employeeId: null,
+              customerId: 'cust1',
+              startTime: new Date(),
+              status: 'active',
+              totalTime: 0,
+            });
+            setRentalId(`${gameId}-${branchId}`);
+            setTime(0);
+            setIsActive(true);
+            setCost(0);
+            console.log('New rental started over completed one');
           }
         } else {
           // No rental exists—start a new one
@@ -140,9 +172,24 @@ const CustomerDashboard = () => {
           setTime(0);
           setIsActive(true);
           setCost(0);
-          setRentalHistory(null);
           console.log('New rental created');
         }
+
+        // Fetch rental history
+        const unsubscribe = onSnapshot(historyCollectionRef, (snapshot) => {
+          const history = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            startTime: doc.data().startTime.toDate().toLocaleString(),
+            endTime: doc.data().endTime ? doc.data().endTime.toDate().toLocaleString() : null
+          }));
+          console.log('Rental history fetched:', history);
+          setRentalHistory(history);
+        }, (error) => {
+          console.error('Error fetching history:', error.message);
+        });
+
+        return () => unsubscribe();
       } catch (error) {
         console.error('Firestore error:', error.message);
         setError('Failed to access rental or game data: ' + error.message);
@@ -202,12 +249,13 @@ const CustomerDashboard = () => {
       await updateDoc(doc(db, 'rentals', rentalId), { 
         totalTime: time, 
         status: 'completed', 
-        cost: finalCost 
+        cost: finalCost,
+        endTime: new Date() // Add endTime for history
       });
       console.log('Session ended, cost:', finalCost);
       setCost(finalCost);
       setIsActive(false);
-      setRentalHistory({ gameId, branchId, totalTime: time, cost: finalCost, status: 'completed' });
+      // Move to history happens on next scan
     } catch (error) {
       console.error('End session error:', error.message);
       setError('Failed to end session: ' + error.message);
@@ -220,41 +268,53 @@ const CustomerDashboard = () => {
         <DashboardTitle>Game Rental - {branchId}</DashboardTitle>
         {error ? (
           <ErrorText>{error}</ErrorText>
-        ) : isActive ? (
-          <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
-              <GameText>Game Rented: {gameName}</GameText>
-            </motion.div>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
-              <TimeText>Time Played: {time} minutes</TimeText>
-            </motion.div>
-            <div className="flex justify-center gap-4">
-              <Button
-                pause
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={togglePause}
-              >
-                {isPaused ? 'Resume' : 'Pause'}
-              </Button>
-              <Button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={endSession}
-              >
-                End Session
-              </Button>
-            </div>
-          </>
-        ) : rentalHistory ? (
-          <>
-            <GameText>Game: {gameName}</GameText>
-            <HistoryText>Time Played: {rentalHistory.totalTime} minutes</HistoryText>
-            <CostText>Total Cost: {rentalHistory.cost} bob</CostText>
-            <p className="text-gray-600 mt-2">Session completed. Scan again to start a new rental.</p>
-          </>
         ) : (
-          <p>Loading rental status...</p>
+          <>
+            {isActive ? (
+              <>
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
+                  <GameText>Game Rented: {gameName}</GameText>
+                </motion.div>
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
+                  <TimeText>Time Played: {time} minutes</TimeText>
+                </motion.div>
+                <div className="flex justify-center gap-4">
+                  <Button
+                    pause
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={togglePause}
+                  >
+                    {isPaused ? 'Resume' : 'Pause'}
+                  </Button>
+                  <Button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={endSession}
+                  >
+                    End Session
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <p className="text-gray-600 mt-2">Scan to start a new rental.</p>
+            )}
+            <HistorySection>
+              <HistoryTitle>Rental History</HistoryTitle>
+              {rentalHistory.length > 0 ? (
+                <HistoryList>
+                  {rentalHistory.map(entry => (
+                    <HistoryItem key={entry.id}>
+                      Started: {entry.startTime} | Time: {entry.totalTime} min | Cost: {entry.cost || 0} bob
+                      {entry.endTime && ` | Ended: ${entry.endTime}`}
+                    </HistoryItem>
+                  ))}
+                </HistoryList>
+              ) : (
+                <p>No rental history yet.</p>
+              )}
+            </HistorySection>
+          </>
         )}
       </Card>
     </Container>
