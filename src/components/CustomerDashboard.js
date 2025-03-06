@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
-import { doc, setDoc, updateDoc, getDoc, collection, addDoc, onSnapshot } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, collection, addDoc, onSnapshot } from 'firebase/firestore';
 import { motion } from 'framer-motion';
 import styled from 'styled-components';
 
+// Styled Components
 const Container = styled.div`
   min-height: 100vh;
   background: linear-gradient(135deg, #1e3a8a, #9333ea);
@@ -74,7 +75,7 @@ const HistoryItem = styled.li`
 
 const Button = styled(motion.button)`
   padding: 0.75rem 1.5rem;
-  background: ${props => props.pause ? '#9333ea' : props.rescan ? '#1e3a8a' : '#f97316'};
+  background: ${(props) => (props.pause ? '#9333ea' : props.rescan ? '#1e3a8a' : '#f97316')};
   color: white;
   font-weight: bold;
   border: none;
@@ -83,7 +84,7 @@ const Button = styled(motion.button)`
   margin: 0 0.5rem;
   transition: background 0.3s;
   &:hover {
-    background: ${props => props.pause ? '#7e22ce' : props.rescan ? '#1e40af' : '#ea580c'};
+    background: ${(props) => (props.pause ? '#7e22ce' : props.rescan ? '#1e40af' : '#ea580c')};
   }
 `;
 
@@ -91,6 +92,88 @@ const ErrorText = styled.p`
   color: #e11d48;
   font-size: 1.25rem;
 `;
+
+const GamesSection = styled.div`
+  margin-top: 2rem;
+`;
+
+const GamesTitle = styled.h2`
+  color: #1e3a8a;
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+`;
+
+const GamesGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 1rem;
+`;
+
+const GameCard = styled.div`
+  background: #f9fafb;
+  border-radius: 10px;
+  padding: 0.5rem;
+  text-align: center;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  transition: transform 0.3s ease;
+  &:hover {
+    transform: translateY(-5px);
+  }
+`;
+
+const GameImage = styled.img`
+  width: 100%;
+  height: 100px;
+  object-fit: cover;
+  border-radius: 8px;
+`;
+
+const GameName = styled.p`
+  color: #333;
+  font-size: 1rem;
+  margin: 0.5rem 0 0;
+`;
+
+const GamePrice = styled.p`
+  color: #f97316;
+  font-size: 1rem;
+  font-weight: bold;
+`;
+
+const ContactSection = styled.div`
+  margin-top: 2rem;
+`;
+
+const WhatsAppLink = styled(motion.a)`
+  display: inline-flex;
+  align-items: center;
+  padding: 0.75rem 1.5rem;
+  background: #25d366;
+  color: white;
+  font-weight: bold;
+  text-decoration: none;
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  transition: background 0.3s;
+  &:hover {
+    background: #20bf55;
+  }
+`;
+
+const WhatsAppIcon = styled.span`
+  margin-right: 0.5rem;
+  font-size: 1.25rem;
+`;
+
+// Game Data
+const games = [
+  { name: 'Jenga', price: 'KES 700', image: '/images/jenga.jpg' },
+  { name: 'Ludo', price: 'KES 800', image: '/images/ludo.jpg' },
+  { name: 'Scrabble', price: 'KES 900', image: '/images/scrabble.jpg' },
+  { name: 'Chess', price: 'KES 1800', image: '/images/chess.jpg' },
+  { name: 'Do or Drink', price: 'KES 600', image: '/images/do_or_drink.jpg' },
+];
 
 const CustomerDashboard = () => {
   const { branchId, gameId } = useParams();
@@ -112,7 +195,6 @@ const CustomerDashboard = () => {
       const historyCollectionRef = collection(db, 'rentals', `${gameId}-${branchId}`, 'history');
 
       try {
-        // Fetch game name
         const gameDoc = await getDoc(gameRef);
         if (gameDoc.exists()) {
           setGameName(gameDoc.data().name);
@@ -123,13 +205,11 @@ const CustomerDashboard = () => {
           return;
         }
 
-        // Check current rental status with real-time listener
         const unsubscribeRental = onSnapshot(rentalRef, (doc) => {
           if (doc.exists()) {
             const rentalData = doc.data();
             console.log('Current rental updated:', rentalData);
             setRentalId(doc.id);
-
             if (rentalData.status === 'active') {
               setTime(rentalData.totalTime || 0);
               setIsActive(true);
@@ -152,13 +232,12 @@ const CustomerDashboard = () => {
           setError('Failed to fetch rental data: ' + error.message);
         });
 
-        // Fetch rental history
         const unsubscribeHistory = onSnapshot(historyCollectionRef, (snapshot) => {
-          const history = snapshot.docs.map(doc => ({
+          const history = snapshot.docs.map((doc) => ({
             id: doc.id,
             ...doc.data(),
             startTime: doc.data().startTime.toDate().toLocaleString(),
-            endTime: doc.data().endTime ? doc.data().endTime.toDate().toLocaleString() : null
+            endTime: doc.data().endTime ? doc.data().endTime.toDate().toLocaleString() : null,
           }));
           console.log('Rental history fetched:', history);
           setRentalHistory(history);
@@ -176,12 +255,14 @@ const CustomerDashboard = () => {
       }
     };
     checkRentalStatus();
+  }, [branchId, gameId]);
 
+  useEffect(() => {
     let interval;
-    if (!isPaused && isActive && !error) {
+    if (isActive && !isPaused && !error) {
       console.log('Starting timer');
       interval = setInterval(() => {
-        setTime(t => {
+        setTime((t) => {
           console.log('Timer incremented to:', t + 1);
           return t + 1;
         });
@@ -190,7 +271,7 @@ const CustomerDashboard = () => {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isPaused, branchId, gameId, isActive]);
+  }, [isActive, isPaused, error]);
 
   useEffect(() => {
     if (isPaused && rentalId) {
@@ -209,7 +290,7 @@ const CustomerDashboard = () => {
       return;
     }
     try {
-      setIsPaused(prev => !prev);
+      setIsPaused((prev) => !prev);
       await updateDoc(doc(db, 'rentals', rentalId), { totalTime: time });
       console.log('Rental updated, paused at:', time);
     } catch (error) {
@@ -226,23 +307,22 @@ const CustomerDashboard = () => {
     }
     try {
       const finalCost = time * 3;
-      await updateDoc(doc(db, 'rentals', rentalId), { 
-        totalTime: time, 
-        status: 'completed', 
+      await updateDoc(doc(db, 'rentals', rentalId), {
+        totalTime: time,
+        status: 'completed',
         cost: finalCost,
-        endTime: new Date()
+        endTime: new Date(),
       });
-      // Add to history
       const historyCollectionRef = collection(db, 'rentals', rentalId, 'history');
       await addDoc(historyCollectionRef, {
         gameId,
         branchId,
-        employeeId: null,
+        prevailedId: null,
         customerId: 'cust1',
-        startTime: new Date(rentalId.split('-')[1]), // Approximate start time
+        startTime: new Date(rentalId.split('-')[1]),
         totalTime: time,
         cost: finalCost,
-        endTime: new Date()
+        endTime: new Date(),
       });
       console.log('Session ended, cost:', finalCost);
       setCost(finalCost);
@@ -255,7 +335,6 @@ const CustomerDashboard = () => {
 
   const handleRescan = () => {
     console.log('Rescan clicked, prompting QR scan');
-    // Navigate back to root to prompt rescan (assumes QR scan triggers route change)
     navigate('/');
   };
 
@@ -274,19 +353,10 @@ const CustomerDashboard = () => {
               <TimeText>Time Played: {time} minutes</TimeText>
             </motion.div>
             <div className="flex justify-center gap-4">
-              <Button
-                pause
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={togglePause}
-              >
+              <Button pause whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={togglePause}>
                 {isPaused ? 'Resume' : 'Pause'}
               </Button>
-              <Button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={endSession}
-              >
+              <Button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={endSession}>
                 End Session
               </Button>
             </div>
@@ -296,16 +366,11 @@ const CustomerDashboard = () => {
             {cost > 0 && (
               <>
                 <GameText>Game: {gameName}</GameText>
-                <HistoryText>Time Played: {time} minutes</HistoryText>
+                <TimeText>Time Played: {time} minutes</TimeText>
                 <CostText>Total Cost: {cost} bob</CostText>
               </>
             )}
-            <Button
-              rescan
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleRescan}
-            >
+            <Button rescan whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={handleRescan}>
               Rescan to Start
             </Button>
           </>
@@ -314,7 +379,7 @@ const CustomerDashboard = () => {
           <HistoryTitle>Rental History</HistoryTitle>
           {rentalHistory.length > 0 ? (
             <HistoryList>
-              {rentalHistory.map(entry => (
+              {rentalHistory.map((entry) => (
                 <HistoryItem key={entry.id}>
                   Started: {entry.startTime} | Time: {entry.totalTime} min | Cost: {entry.cost || 0} bob
                   {entry.endTime && ` | Ended: ${entry.endTime}`}
@@ -325,6 +390,34 @@ const CustomerDashboard = () => {
             <p>No rental history yet.</p>
           )}
         </HistorySection>
+
+        {/* Games Section */}
+        <GamesSection>
+          <GamesTitle>Available Games</GamesTitle>
+          <GamesGrid>
+            {games.map((game) => (
+              <GameCard key={game.name}>
+                <GameImage src={game.image} alt={game.name} />
+                <GameName>{game.name}</GameName>
+                <GamePrice>{game.price}</GamePrice>
+              </GameCard>
+            ))}
+          </GamesGrid>
+        </GamesSection>
+
+        {/* WhatsApp Contact Section */}
+        <ContactSection>
+          <WhatsAppLink
+            href="https://wa.me/c/254725592412"
+            target="_blank"
+            rel="noopener noreferrer"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <WhatsAppIcon>📱</WhatsAppIcon>
+            Contact Us on WhatsApp
+          </WhatsAppLink>
+        </ContactSection>
       </Card>
     </Container>
   );

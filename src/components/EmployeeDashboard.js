@@ -9,7 +9,8 @@ import styled from 'styled-components';
 const Container = styled.div`
   min-height: 100vh;
   background: linear-gradient(135deg, #1e3a8a, #9333ea);
-  padding: 2rem;
+  padding: 2rem;,
+  
   font-family: 'Arial', sans-serif;
 `;
 
