@@ -9,8 +9,9 @@ import ludoImage from './images/ludo.jpg';
 import scrabbleImage from './images/scrabble.jpg';
 import chessImage from './images/chess.jpg';
 import doOrDrinkImage from './images/do_or_drink.jpg';
+import QrReader from 'react-qr-reader'; // Import QR Reader
 
-// Styled Components
+// Styled Components (unchanged except for new QR scanner styling)
 const Container = styled.div`
   min-height: 100vh;
   background: linear-gradient(135deg, #1e3a8a, #9333ea);
@@ -171,6 +172,39 @@ const WhatsAppIcon = styled.span`
   font-size: 1.25rem;
 `;
 
+const ScannerContainer = styled.div`
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+`;
+
+const ScannerBox = styled.div`
+  background: white;
+  padding: 1rem;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  width: 90%;
+  max-width: 400px;
+`;
+
+const CloseButton = styled(motion.button)`
+  padding: 0.5rem 1rem;
+  background: #e11d48;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-top: 1rem;
+`;
+
+// Game Data (unchanged)
 const games = [
   { name: 'Jenga', price: 'KES 700', image: '/images/jenga.jpg' },
   { name: 'Ludo', price: 'KES 800', image: '/images/ludo.jpg' },
@@ -190,6 +224,7 @@ const CustomerDashboard = () => {
   const [isActive, setIsActive] = useState(false);
   const [rentalHistory, setRentalHistory] = useState([]);
   const [error, setError] = useState(null);
+  const [showScanner, setShowScanner] = useState(false); // State to toggle QR scanner
 
   useEffect(() => {
     const checkRentalStatus = async () => {
@@ -216,10 +251,9 @@ const CustomerDashboard = () => {
             setRentalId(doc.id);
             if (rentalData.status === 'active') {
               setTime(rentalData.totalTime || 0);
-              setIsActive(true); // Only set active if explicitly active
+              setIsActive(true);
               console.log('Active rental loaded, time:', rentalData.totalTime);
             } else {
-              // Ensure state resets for completed or other statuses
               setCost(rentalData.cost || 0);
               setTime(rentalData.totalTime || 0);
               setIsActive(false);
@@ -332,8 +366,8 @@ const CustomerDashboard = () => {
       console.log('Session ended, cost:', finalCost);
       setCost(finalCost);
       setIsActive(false);
-      setTime(0); // Reset time to prevent immediate restart
-      setIsPaused(false); // Reset pause state
+      setTime(0);
+      setIsPaused(false);
     } catch (error) {
       console.error('End session error:', error.message);
       setError('Failed to end session: ' + error.message);
@@ -341,9 +375,47 @@ const CustomerDashboard = () => {
   };
 
   const handleRescan = () => {
-    console.log('Rescan clicked, prompting QR scan');
-    navigate('/'); // Navigate to QR scan page
-    // Optionally reset state here if needed, but navigation should suffice
+    console.log('Rescan clicked, opening QR scanner');
+    setShowScanner(true); // Show the QR scanner
+  };
+
+  const handleScan = async (data) => {
+    if (data) {
+      console.log('QR Code scanned:', data);
+      setShowScanner(false); // Hide scanner after successful scan
+      try {
+        // Assuming QR code contains a URL or JSON with gameId and branchId
+        const qrData = JSON.parse(data); // Adjust based on your QR code format
+        const newGameId = qrData.gameId;
+        const newBranchId = qrData.branchId;
+
+        // Start a new rental
+        const rentalRef = doc(db, 'rentals', `${newGameId}-${newBranchId}`);
+        await updateDoc(rentalRef, {
+          gameId: newGameId,
+          branchId: newBranchId,
+          status: 'active',
+          totalTime: 0,
+          startTime: new Date(),
+        }, { merge: true }); // Use merge to create if it doesn’t exist
+
+        // Update URL params and state
+        navigate(`/dashboard/${newBranchId}/${newGameId}`);
+      } catch (error) {
+        console.error('Error starting new rental:', error.message);
+        setError('Failed to start new rental: ' + error.message);
+      }
+    }
+  };
+
+  const handleScanError = (err) => {
+    console.error('QR Scan error:', err);
+    setError('Failed to scan QR code: ' + err.message);
+    setShowScanner(false);
+  };
+
+  const closeScanner = () => {
+    setShowScanner(false);
   };
 
   return (
@@ -425,6 +497,22 @@ const CustomerDashboard = () => {
           </WhatsAppLink>
         </ContactSection>
       </Card>
+
+      {showScanner && (
+        <ScannerContainer>
+          <ScannerBox>
+            <QrReader
+              delay={300}
+              onError={handleScanError}
+              onScan={handleScan}
+              style={{ width: '100%' }}
+            />
+            <CloseButton whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={closeScanner}>
+              Close Scanner
+            </CloseButton>
+          </ScannerBox>
+        </ScannerContainer>
+      )}
     </Container>
   );
 };
