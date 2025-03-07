@@ -206,11 +206,11 @@ const CloseButton = styled(motion.button)`
 
 // Game Data (unchanged)
 const games = [
-  { name: 'Jenga', price: 'KES 700', image: '/images/jenga.jpg' },
-  { name: 'Ludo', price: 'KES 800', image: '/images/ludo.jpg' },
-  { name: 'Scrabble', price: 'KES 900', image: '/images/scrabble.jpg' },
-  { name: 'Chess', price: 'KES 1800', image: '/images/chess.jpg' },
-  { name: 'Do or Drink', price: 'KES 600', image: '/images/do_or_drink.jpg' },
+  { name: 'Jenga', price: 'KES 700', image: jengaImage },
+  { name: 'Ludo', price: 'KES 800', image: ludoImage },
+  { name: 'Scrabble', price: 'KES 900', image: scrabbleImage },
+  { name: 'Chess', price: 'KES 1800', image: chessImage },
+  { name: 'Do or Drink', price: 'KES 600', image: doOrDrinkImage },
 ];
 
 const CustomerDashboard = () => {
