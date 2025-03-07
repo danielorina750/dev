@@ -4,6 +4,11 @@ import { db } from '../firebase';
 import { doc, updateDoc, getDoc, collection, addDoc, onSnapshot } from 'firebase/firestore';
 import { motion } from 'framer-motion';
 import styled from 'styled-components';
+import jengaImage from './images/jenga.jpg';
+import ludoImage from './images/ludo.jpg';
+import scrabbleImage from './images/scrabble.jpg';
+import chessImage from './images/chess.jpg';
+import doOrDrinkImage from './images/do_or_drink.jpg';
 
 // Styled Components
 const Container = styled.div`
@@ -168,11 +173,11 @@ const WhatsAppIcon = styled.span`
 
 // Game Data
 const games = [
-  { name: 'Jenga', price: 'KES 700', image: '/images/jenga.jpg' },
-  { name: 'Ludo', price: 'KES 800', image: '/images/ludo.jpg' },
-  { name: 'Scrabble', price: 'KES 900', image: '/images/scrabble.jpg' },
-  { name: 'Chess', price: 'KES 1800', image: '/images/chess.jpg' },
-  { name: 'Do or Drink', price: 'KES 600', image: '/images/do_or_drink.jpg' },
+  { name: 'Jenga', price: 'KES 700', image: jengaImage },
+  { name: 'Ludo', price: 'KES 800', image: ludoImage },
+  { name: 'Scrabble', price: 'KES 900', image: scrabbleImage },
+  { name: 'Chess', price: 'KES 1800', image: chessImage },
+  { name: 'Do or Drink', price: 'KES 600', image: doOrDrinkImage },
 ];
 
 const CustomerDashboard = () => {
