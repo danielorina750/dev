@@ -347,7 +347,7 @@ const CustomerDashboard = () => {
         ) : isActive ? (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
-              <GameText>Game Rented: {gameName}</GameText>
+              <GameText>Game Rente: {gameName}</GameText>
             </motion.div>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
               <TimeText>Time Played: {time} minutes</TimeText>
