@@ -171,13 +171,12 @@ const WhatsAppIcon = styled.span`
   font-size: 1.25rem;
 `;
 
-// Game Data
 const games = [
-  { name: 'Jenga', price: 'KES 700', image: jengaImage },
-  { name: 'Ludo', price: 'KES 800', image: ludoImage },
-  { name: 'Scrabble', price: 'KES 900', image: scrabbleImage },
-  { name: 'Chess', price: 'KES 1800', image: chessImage },
-  { name: 'Do or Drink', price: 'KES 600', image: doOrDrinkImage },
+  { name: 'Jenga', price: 'KES 700', image: '/images/jenga.jpg' },
+  { name: 'Ludo', price: 'KES 800', image: '/images/ludo.jpg' },
+  { name: 'Scrabble', price: 'KES 900', image: '/images/scrabble.jpg' },
+  { name: 'Chess', price: 'KES 1800', image: '/images/chess.jpg' },
+  { name: 'Do or Drink', price: 'KES 600', image: '/images/do_or_drink.jpg' },
 ];
 
 const CustomerDashboard = () => {
@@ -217,16 +216,17 @@ const CustomerDashboard = () => {
             setRentalId(doc.id);
             if (rentalData.status === 'active') {
               setTime(rentalData.totalTime || 0);
-              setIsActive(true);
+              setIsActive(true); // Only set active if explicitly active
               console.log('Active rental loaded, time:', rentalData.totalTime);
-            } else if (rentalData.status === 'completed') {
+            } else {
+              // Ensure state resets for completed or other statuses
               setCost(rentalData.cost || 0);
               setTime(rentalData.totalTime || 0);
               setIsActive(false);
-              console.log('Completed rental loaded, cost:', rentalData.cost);
+              console.log('Non-active rental loaded, cost:', rentalData.cost);
             }
           } else {
-            console.log('No rental exists, waiting for scan');
+            console.log('No rental exists, resetting state');
             setIsActive(false);
             setTime(0);
             setCost(0);
@@ -332,6 +332,8 @@ const CustomerDashboard = () => {
       console.log('Session ended, cost:', finalCost);
       setCost(finalCost);
       setIsActive(false);
+      setTime(0); // Reset time to prevent immediate restart
+      setIsPaused(false); // Reset pause state
     } catch (error) {
       console.error('End session error:', error.message);
       setError('Failed to end session: ' + error.message);
@@ -340,7 +342,8 @@ const CustomerDashboard = () => {
 
   const handleRescan = () => {
     console.log('Rescan clicked, prompting QR scan');
-    navigate('/');
+    navigate('/'); // Navigate to QR scan page
+    // Optionally reset state here if needed, but navigation should suffice
   };
 
   return (
@@ -396,7 +399,6 @@ const CustomerDashboard = () => {
           )}
         </HistorySection>
 
-        {/* Games Section */}
         <GamesSection>
           <GamesTitle>Available Games</GamesTitle>
           <GamesGrid>
@@ -410,7 +412,6 @@ const CustomerDashboard = () => {
           </GamesGrid>
         </GamesSection>
 
-        {/* WhatsApp Contact Section */}
         <ContactSection>
           <WhatsAppLink
             href="https://wa.me/c/254725592412"
