@@ -9,9 +9,9 @@ import ludoImage from './images/ludo.jpg';
 import scrabbleImage from './images/scrabble.jpg';
 import chessImage from './images/chess.jpg';
 import doOrDrinkImage from './images/do_or_drink.jpg';
-import QrReader from 'react-qr-reader'; // Import QR Reader
+import QrReader from 'react-qr-reader';
 
-// Styled Components (unchanged except for new QR scanner styling)
+// Styled Components (unchanged)
 const Container = styled.div`
   min-height: 100vh;
   background: linear-gradient(135deg, #1e3a8a, #9333ea);
@@ -224,7 +224,7 @@ const CustomerDashboard = () => {
   const [isActive, setIsActive] = useState(false);
   const [rentalHistory, setRentalHistory] = useState([]);
   const [error, setError] = useState(null);
-  const [showScanner, setShowScanner] = useState(false); // State to toggle QR scanner
+  const [showScanner, setShowScanner] = useState(false);
 
   useEffect(() => {
     const checkRentalStatus = async () => {
@@ -374,20 +374,24 @@ const CustomerDashboard = () => {
     }
   };
 
+  // Updated: Rescan only opens the QR scanner, no navigation
   const handleRescan = () => {
     console.log('Rescan clicked, opening QR scanner');
-    setShowScanner(true); // Show the QR scanner
+    setShowScanner(true); // Show the QR scanner overlay
   };
 
+  // Navigation only happens after successful scan
   const handleScan = async (data) => {
     if (data) {
       console.log('QR Code scanned:', data);
-      setShowScanner(false); // Hide scanner after successful scan
       try {
-        // Assuming QR code contains a URL or JSON with gameId and branchId
-        const qrData = JSON.parse(data); // Adjust based on your QR code format
+        const qrData = JSON.parse(data); // Assuming QR code contains JSON with gameId and branchId
         const newGameId = qrData.gameId;
         const newBranchId = qrData.branchId;
+
+        if (!newGameId || !newBranchId) {
+          throw new Error('Invalid QR code data');
+        }
 
         // Start a new rental
         const rentalRef = doc(db, 'rentals', `${newGameId}-${newBranchId}`);
@@ -397,13 +401,16 @@ const CustomerDashboard = () => {
           status: 'active',
           totalTime: 0,
           startTime: new Date(),
-        }, { merge: true }); // Use merge to create if it doesn’t exist
+        }, { merge: true }); // Merge to create if it doesn’t exist
 
-        // Update URL params and state
+        // Navigate only after successful scan and Firestore update
+        console.log('Navigating to new rental:', newBranchId, newGameId);
         navigate(`/dashboard/${newBranchId}/${newGameId}`);
       } catch (error) {
         console.error('Error starting new rental:', error.message);
         setError('Failed to start new rental: ' + error.message);
+      } finally {
+        setShowScanner(false); // Hide scanner after scan attempt
       }
     }
   };
@@ -415,7 +422,8 @@ const CustomerDashboard = () => {
   };
 
   const closeScanner = () => {
-    setShowScanner(false);
+    console.log('Closing QR scanner');
+    setShowScanner(false); // Close scanner without navigation
   };
 
   return (
