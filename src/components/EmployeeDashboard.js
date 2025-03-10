@@ -92,9 +92,8 @@ const EmployeeDashboard = () => {
   const scannerRef = useRef(null);
   const timerRef = useRef(null);
 
+  // Fetch employee branch and handle auth
   useEffect(() => {
-    let unsubscribe;
-
     const fetchBranch = async () => {
       try {
         const user = auth.currentUser;
@@ -104,9 +103,7 @@ const EmployeeDashboard = () => {
         }
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists() && userDoc.data().role === 'employee') {
-          const employeeBranch = userDoc.data().branchId;
-          setBranchId(employeeBranch);
-          console.log('Employee branchId:', employeeBranch);
+          setBranchId(userDoc.data().branchId);
         } else {
           navigate('/');
         }
@@ -118,140 +115,148 @@ const EmployeeDashboard = () => {
     fetchBranch();
 
     return () => {
-      if (unsubscribe) unsubscribe();
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch((error) =>
-          console.error('Scanner cleanup error:', error)
-        );
+      if (scanner) {
+        scanner.clear().catch((error) => console.error('Scanner cleanup error:', error));
       }
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [navigate]);
+  }, [navigate, scanner]);
 
-  const updateRentalTime = useCallback(async (rentalId, currentTime) => {
+  // Update rental time in Firestore and local state
+  const updateRentalTime = useCallback(async (rental) => {
     try {
-      await updateDoc(doc(db, 'rentals', rentalId), { totalTime: currentTime + 1 });
+      const newTime = (rental.totalTime || 0) + 1;
+      const rentalRef = doc(db, 'rentals', rental.id);
+      await updateDoc(rentalRef, { totalTime: newTime });
+      // Update local state to reflect timer immediately
+      setActiveRentals((prev) =>
+        prev.map((r) => (r.id === rental.id ? { ...r, totalTime: newTime } : r))
+      );
     } catch (error) {
       console.error('Error updating rental time:', error.message);
     }
   }, []);
 
+  // Fetch rentals and set up timer
   useEffect(() => {
     if (!branchId) return;
 
-    const unsubscribe = onSnapshot(
-      collection(db, 'rentals'),
-      async (snapshot) => {
-        try {
-          const rentals = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-          const branchRentals = rentals.filter((r) => r.branchId === branchId);
+    const unsubscribe = onSnapshot(collection(db, 'rentals'), async (snapshot) => {
+      try {
+        const rentals = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        const branchRentals = rentals.filter((r) => r.branchId === branchId);
 
-          const rentalsWithGameNames = await Promise.all(
-            branchRentals.map(async (rental) => {
-              const gameDoc = await getDoc(doc(db, 'games', rental.gameId));
-              const gameName = gameDoc.exists() ? gameDoc.data().name : 'Unknown Game';
-              return { ...rental, gameName };
-            })
-          );
+        const rentalsWithGameNames = await Promise.all(
+          branchRentals.map(async (rental) => {
+            const gameDoc = await getDoc(doc(db, 'games', rental.gameId));
+            const gameName = gameDoc.exists() ? gameDoc.data().name : 'Unknown Game';
+            return { ...rental, gameName };
+          })
+        );
 
-          const active = rentalsWithGameNames.filter((r) => r.status === 'active');
-          setActiveRentals(active);
-          setRentalHistory(rentalsWithGameNames.filter((r) => r.status === 'completed'));
-          console.log('Active rentals fetched:', active);
-          console.log('Rental history fetched:', rentalsWithGameNames.filter((r) => r.status === 'completed'));
-        } catch (error) {
-          console.error('Firestore data fetch error:', error.message);
-        }
-      },
-      (error) => {
-        console.error('Firestore listener error:', error.message);
+        const active = rentalsWithGameNames.filter((r) => r.status === 'active');
+        setActiveRentals(active);
+        setRentalHistory(rentalsWithGameNames.filter((r) => r.status === 'completed'));
+      } catch (error) {
+        console.error('Firestore data fetch error:', error.message);
       }
-    );
+    });
 
+    // Timer to update active rentals every minute
     timerRef.current = setInterval(() => {
       activeRentals.forEach((rental) => {
         if (rental.status === 'active') {
-          const newTime = (rental.totalTime || 0) + 1;
-          updateRentalTime(rental.id, newTime);
+          updateRentalTime(rental);
         }
       });
     }, 60000); // 1 minute
 
     return () => {
-      if (unsubscribe) unsubscribe();
+      unsubscribe();
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [branchId, updateRentalTime, activeRentals]);
+  }, [branchId, activeRentals, updateRentalTime]);
 
+  // Initialize QR scanner
   useEffect(() => {
-    if (!scannerRef.current && branchId) {
-      const qrScanner = new Html5QrcodeScanner(
-        'reader',
-        { fps: 15, qrbox: { width: 300, height: 300 }, aspectRatio: 1.0, disableFlip: false },
-        false
-      );
-      qrScanner.render(
-        async (decodedText) => {
-          try {
-            console.log('Scanned:', decodedText);
-            const match = decodedText.match(/game\/([^/]+)\/([^/]+)/);
-            if (!match) {
-              console.error('Invalid QR code format');
-              return;
-            }
-            const [, scannedBranch, gameId] = match;
-            if (scannedBranch === branchId) {
-              const rentalRef = doc(db, 'rentals', `${gameId}-${branchId}`);
-              const rentalDoc = await getDoc(rentalRef);
-              if (rentalDoc.exists() && rentalDoc.data().status === 'active') {
-                await updateDoc(rentalRef, {
-                  status: 'completed',
-                  cost: (rentalDoc.data().totalTime || 0) * 3,
-                  endTime: new Date(),
-                });
-                console.log('Employee ended rental via scan:', rentalRef.id);
-              } else {
-                await setDoc(rentalRef, {
-                  gameId,
-                  branchId,
-                  employeeId: auth.currentUser.uid,
-                  customerId: 'cust1', // Consider making this dynamic
-                  startTime: new Date(),
-                  status: 'active',
-                  totalTime: 0,
-                });
-                console.log('Employee started new rental via scan:', rentalRef.id);
-              }
-            } else {
-              console.warn('Scanned branch does not match employee branch');
-            }
-          } catch (error) {
-            console.error('Scan processing error:', error.message);
+    if (!branchId || scanner) return;
+
+    const qrScanner = new Html5QrcodeScanner(
+      'reader',
+      {
+        fps: 10, // Reduce FPS for better performance
+        qrbox: { width: 250, height: 250 }, // Smaller scan area for precision
+        aspectRatio: 1.0,
+        disableFlip: false,
+        rememberLastUsedCamera: true, // Improve user experience
+      },
+      false
+    );
+
+    qrScanner.render(
+      async (decodedText) => {
+        try {
+          console.log('Scanned QR:', decodedText);
+          // Assuming QR code format matches CustomerDashboard: JSON with gameId and branchId
+          const qrData = JSON.parse(decodedText);
+          const { gameId: scannedGameId, branchId: scannedBranchId } = qrData;
+
+          if (scannedBranchId !== branchId) {
+            console.warn('Scanned branch does not match employee branch');
+            return;
           }
-        },
-        (error) => console.log('Scan error:', error.message)
-      );
-      scannerRef.current = qrScanner;
-      setScanner(qrScanner);
-    }
+
+          const rentalId = `${scannedGameId}-${scannedBranchId}`;
+          const rentalRef = doc(db, 'rentals', rentalId);
+          const rentalDoc = await getDoc(rentalRef);
+
+          if (rentalDoc.exists() && rentalDoc.data().status === 'active') {
+            // End existing rental
+            const totalTime = rentalDoc.data().totalTime || 0;
+            await updateDoc(rentalRef, {
+              status: 'completed',
+              cost: totalTime * 3,
+              endTime: new Date(),
+            });
+            console.log('Employee ended rental via scan:', rentalId);
+          } else {
+            // Start new rental
+            await setDoc(rentalRef, {
+              gameId: scannedGameId,
+              branchId: scannedBranchId,
+              employeeId: auth.currentUser.uid,
+              customerId: 'cust1', // Should be dynamic if possible
+              startTime: new Date(),
+              status: 'active',
+              totalTime: 0,
+            });
+            console.log('Employee started new rental via scan:', rentalId);
+          }
+        } catch (error) {
+          console.error('Scan processing error:', error.message);
+        }
+      },
+      (error) => console.log('Scan error:', error.message)
+    );
+
+    setScanner(qrScanner);
+    scannerRef.current = qrScanner;
 
     return () => {
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch((error) =>
-          console.error('Scanner cleanup error:', error)
-        );
-      }
+      qrScanner.clear().catch((error) => console.error('Scanner cleanup error:', error));
     };
   }, [branchId]);
 
+  // End rental session manually
   const endRentalSession = async (rentalId) => {
     try {
       const rentalRef = doc(db, 'rentals', rentalId);
       const rentalDoc = await getDoc(rentalRef);
       if (rentalDoc.exists() && rentalDoc.data().status === 'active') {
+        const totalTime = rentalDoc.data().totalTime || 0;
         await updateDoc(rentalRef, {
           status: 'completed',
-          cost: (rentalDoc.data().totalTime || 0) * 3,
+          cost: totalTime * 3,
           endTime: new Date(),
         });
         const historyCollectionRef = collection(db, 'rentals', rentalId, 'history');
@@ -259,10 +264,10 @@ const EmployeeDashboard = () => {
           gameId: rentalDoc.data().gameId,
           branchId: rentalDoc.data().branchId,
           employeeId: rentalDoc.data().employeeId,
-          customerId: 'cust1', // Consider making this dynamic
+          customerId: rentalDoc.data().customerId,
           startTime: rentalDoc.data().startTime,
-          totalTime: rentalDoc.data().totalTime,
-          cost: (rentalDoc.data().totalTime || 0) * 3,
+          totalTime,
+          cost: totalTime * 3,
           endTime: new Date(),
         });
         console.log('Employee ended rental via button:', rentalId);
@@ -285,7 +290,7 @@ const EmployeeDashboard = () => {
       <Card initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
         <CardTitle>Scan QR Code</CardTitle>
         <ScannerContainer>
-          <div id="reader"></div>
+          <div id="reader" style={{ width: '100%' }}></div>
         </ScannerContainer>
       </Card>
 
@@ -322,16 +327,20 @@ const EmployeeDashboard = () => {
         <Card initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6 }}>
           <CardTitle>Rental History</CardTitle>
           <List>
-            {rentalHistory.map((rental) => (
-              <ListItem key={rental.id} whileHover={{ scale: 1.02 }}>
-                <p className="font-medium">
-                  Game: {rental.gameName} (ID: {rental.gameId})
-                </p>
-                <p>
-                  Time: {rental.totalTime || 0} minutes | Cost: {rental.cost || 0} bob
-                </p>
-              </ListItem>
-            ))}
+            {rentalHistory.length > 0 ? (
+              rentalHistory.map((rental) => (
+                <ListItem key={rental.id} whileHover={{ scale: 1.02 }}>
+                  <p className="font-medium">
+                    Game: {rental.gameName} (ID: {rental.gameId})
+                  </p>
+                  <p>
+                    Time: {rental.totalTime || 0} minutes | Cost: {rental.cost || 0} bob
+                  </p>
+                </ListItem>
+              ))
+            ) : (
+              <p>No rental history yet.</p>
+            )}
           </List>
         </Card>
       </div>
