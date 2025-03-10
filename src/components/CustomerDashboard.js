@@ -4,11 +4,11 @@ import { db } from '../firebase';
 import { doc, updateDoc, getDoc, collection, addDoc, onSnapshot } from 'firebase/firestore';
 import { motion } from 'framer-motion';
 import styled from 'styled-components';
-import jengaImage from './images/jenga.jpg';
-import ludoImage from './images/ludo.jpg';
-import scrabbleImage from './images/scrabble.jpg';
-import chessImage from './images/chess.jpg';
-import doOrDrinkImage from './images/do_or_drink.jpg';
+import jengaImage from '../images/jenga.jpg';
+import ludoImage from '../images/ludo.jpg';
+import scrabbleImage from '../images/scrabble.jpg';
+import chessImage from '../images/chess.jpg';
+import doOrDrinkImage from '../images/do_or_drink.jpg';
 import QrReader from 'react-qr-reader';
 
 // Styled Components (unchanged)
